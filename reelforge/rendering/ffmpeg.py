@@ -41,12 +41,17 @@ def build_mix_command(
     output: Path,
     duration: float,
     music: Path | None = None,
-    music_db: float = -30.0,
+    music_db: float = -10.0,
     sfx: Path | None = None,
     sfx_db: float = -26.0,
+    music_stem: Path | None = None,
 ) -> list[str]:
     """Narration + optional music bed (sidechain-ducked under speech) + optional SFX track,
-    loudness-normalised to about -14 LUFS (typical for short-form platforms)."""
+    loudness-normalised to about -14 LUFS (typical for short-form platforms).
+
+    The music bed is expected at the -16 LUFS reference (see `sound.REFERENCE_LUFS`), so the
+    default `music_db=-10` puts it ~13-14 LU under a continuously talking voice, dipping ~6 dB more while words are
+    spoken. `music_stem` also writes the ducked bed on its own so its level can be verified."""
     cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(narration)]
     filters = [f"[0:a]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=0:{duration:.3f}[voice]"]
     mix_inputs = ["[voicemix]"]
@@ -57,7 +62,12 @@ def build_mix_command(
         filters.append(
             f"[{idx}:a]aresample=48000,aformat=channel_layouts=stereo,atrim=0:{duration:.3f},volume={music_db}dB[bed]"
         )
-        filters.append("[bed][sc]sidechaincompress=threshold=0.03:ratio=6:attack=20:release=400[ducked]")
+        duck = "sidechaincompress=threshold=0.05:ratio=3:attack=30:release=350"
+        if music_stem is not None:
+            filters.append(f"[bed][sc]{duck}[duckedall]")
+            filters.append("[duckedall]asplit=2[ducked][stem]")
+        else:
+            filters.append(f"[bed][sc]{duck}[ducked]")
         mix_inputs.append("[ducked]")
         idx += 1
     else:
@@ -75,7 +85,31 @@ def build_mix_command(
     # so the mux never has to shorten the video to match the audio.
     filters.append(f"{last}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,apad,atrim=0:{duration:.3f}[out]")
     cmd += ["-filter_complex", ";".join(filters), "-map", "[out]", "-ar", "48000", "-c:a", "pcm_s16le", str(output)]
+    if music is not None and music_stem is not None:
+        cmd += ["-map", "[stem]", "-ar", "48000", "-c:a", "pcm_s16le", str(music_stem)]
     return cmd
+
+
+def build_music_normalize_command(src: Path, dst: Path, lufs: float = -16.0) -> list[str]:
+    """Bring a user-supplied music file to the same loudness reference as the generated bed."""
+    return [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-nostdin",
+        "-y",
+        "-i",
+        str(src),
+        "-af",
+        f"loudnorm=I={lufs}:TP=-2:LRA=11",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-c:a",
+        "pcm_s16le",
+        str(dst),
+    ]
 
 
 def build_mux_command(*, video: Path, audio: Path, output: Path, duration: float | None = None) -> list[str]:

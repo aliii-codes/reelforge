@@ -256,3 +256,22 @@ def caption_sync_report(path: Path, manifest, tolerance_s: float = 0.3) -> dict:
         warnings.append("captions run to the very last frame; consider a longer tail")
     out.update(errors=errors, warnings=warnings)
     return out
+
+
+def music_balance(narration: Path, music_stem: Path, too_quiet_lu: float = 22.0, too_loud_lu: float = 8.0) -> dict:
+    """Integrated loudness of the voice vs the ducked music stem. Creator reels usually keep music
+    ~10-16 LU under the voice: quieter reads as "no music", louder fights the words."""
+    from reelforge.voice.voiceover import measure_lufs
+
+    voice, music = measure_lufs(narration), measure_lufs(music_stem)
+    out: dict = {"voice_lufs": voice, "music_lufs": music, "voice_minus_music_lu": None, "warnings": []}
+    if voice is None or music is None or music < -70:
+        out["warnings"].append("music is enabled but the music stem is silent")
+        return out
+    gap = round(voice - music, 1)
+    out["voice_minus_music_lu"] = gap
+    if gap > too_quiet_lu:
+        out["warnings"].append(f"music is {gap} LU under the voice - practically inaudible (aim for 10-16)")
+    elif gap < too_loud_lu:
+        out["warnings"].append(f"music is only {gap} LU under the voice - it may mask the narration")
+    return out

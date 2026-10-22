@@ -209,3 +209,60 @@ def test_music_drop_and_all_sfx(tmp_path: Path):
     sfx, sr = sf.read(tmp_path / "sfx.wav")
     for t, _, _ in cues:
         assert np.max(np.abs(sfx[int(t * sr) : int((t + 0.3) * sr)])) > 0.02
+
+
+def test_composed_groove_is_rhythmic_normalised_and_follows_the_edit(tmp_path: Path):
+    from reelforge.voice.voiceover import measure_lufs
+
+    a = sound.compose_bed(20.0, seed=5, full_from=4.0, anchor=12.0)
+    assert np.array_equal(a, sound.compose_bed(20.0, seed=5, full_from=4.0, anchor=12.0))  # deterministic
+    bar = 4 * 60 / 92
+    # the groove repeats every bar: strong autocorrelation of the energy envelope at the bar period
+    hop = 480
+    env = np.abs(a[int(5 * 48000) : int(19 * 48000)])
+    e = env[: len(env) // hop * hop].reshape(-1, hop).mean(1)
+    e = e - e.mean()
+    ac = np.correlate(e, e, "full")[len(e) - 1 :] / (e @ e)
+    lag = round(bar * 48000 / hop)
+    assert ac[lag] > 0.3
+    # hook (before full_from) is lighter but clearly present
+    rms = lambda x, y: float(np.sqrt(np.mean(a[int(x * 48000) : int(y * 48000)] ** 2)))  # noqa: E731
+    assert 0.2 < rms(0.5, 3.5) / rms(6, 11) < 0.9
+    # a bar starts exactly on the anchor: the kick (biggest low-frequency hit) lands there
+    win = a[int(11.9 * 48000) : int(12.1 * 48000)]
+    assert abs(int(np.argmax(np.abs(win))) / 48000 + 11.9 - 12.0) < 0.03
+    sound.write_bed(tmp_path / "bed.wav", 20.0, drops=[(8.0, 9.0)], seed=5, full_from=4.0, anchor=9.0)
+    lufs = measure_lufs(tmp_path / "bed.wav")
+    assert lufs is not None and abs(lufs - sound.REFERENCE_LUFS) < 1.0
+
+
+def test_default_mix_keeps_music_audible_under_the_voice(tmp_path: Path):
+    import subprocess
+
+    from reelforge.rendering.ffmpeg import build_mix_command
+    from reelforge.rendering.validation import music_balance
+
+    voice = write_tone(tmp_path / "voice.wav", 12.0, sr=48000, amp=0.5)
+    sound.write_bed(tmp_path / "bed.wav", 12.0, seed=1, full_from=2.0)
+    stem = tmp_path / "stem.wav"
+    subprocess.run(
+        build_mix_command(
+            narration=voice, output=tmp_path / "mix.wav", duration=12.0, music=tmp_path / "bed.wav", music_stem=stem
+        ),
+        check=True,
+    )
+    bal = music_balance(voice, stem)
+    assert bal["voice_minus_music_lu"] is not None and 8 <= bal["voice_minus_music_lu"] <= 20 and not bal["warnings"]
+    # the old setting (-30 dB, hard ducking) is flagged as inaudible
+    subprocess.run(
+        build_mix_command(
+            narration=voice,
+            output=tmp_path / "mix2.wav",
+            duration=12.0,
+            music=tmp_path / "bed.wav",
+            music_db=-30,
+            music_stem=stem,
+        ),
+        check=True,
+    )
+    assert any("inaudible" in w for w in music_balance(voice, stem)["warnings"])

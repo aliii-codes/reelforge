@@ -39,6 +39,16 @@ def lufs(path: Path) -> float | None:
     return float(m[-1]) if m else None
 
 
+def _music_gap(job: Path) -> float | None:
+    """Voice loudness minus (ducked) music loudness; recomputed from the stem when available."""
+    from reelforge.rendering.validation import music_balance
+
+    stem = job / "work" / "music_stem.wav"
+    if stem.exists():
+        return music_balance(job / "narration.wav", stem)["voice_minus_music_lu"]
+    return None
+
+
 def metrics(job: Path) -> dict:
     m = json.loads((job / "scene_manifest.json").read_text())
     cap = json.loads((job / "captions.json").read_text())
@@ -109,6 +119,7 @@ def metrics(job: Path) -> dict:
         ),
         "sfx_kinds": dict(Counter(c["kind"] for c in sfx)),
         "music_drops": sum(1 for c in m.get("music_cues", []) if c["kind"] == "drop"),
+        "voice_minus_music_lu": _music_gap(job),
         "caption_words": len(cap["words"]),
         "caption_words_interpolated": cap.get("approximate_words", 0),
         "caption_source": cap.get("words_source", "script"),

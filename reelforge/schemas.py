@@ -280,7 +280,8 @@ class JobConfig(StrictModel):
     pronunciations: dict[str, str] = Field(default_factory=dict)
     music: str = "generated"  # "generated", "none", or a path to a licensed audio file
     music_licence: str = ""
-    music_volume_db: float = Field(default=-30.0, le=-12.0)
+    # bed level relative to the -16 LUFS music reference; -10 lands it ~13-14 LU under the voice
+    music_volume_db: float = Field(default=-10.0, ge=-40.0, le=0.0)
     sfx: bool = True
     sfx_volume_db: float = Field(default=-22.0, le=-10.0)
     llm_provider: str = "auto"

@@ -8,6 +8,7 @@ redoing earlier work.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -34,7 +35,13 @@ from reelforge.providers.base import ScenePlanOut
 from reelforge.rendering import ffmpeg as ff
 from reelforge.rendering import remotion, sound
 from reelforge.rendering.contact_sheet import make_contact_sheet
-from reelforge.rendering.validation import caption_sync_report, check_render_completion, even_dim, validate_video
+from reelforge.rendering.validation import (
+    caption_sync_report,
+    check_render_completion,
+    even_dim,
+    music_balance,
+    validate_video,
+)
 from reelforge.rendering.validation import decode_check as validation_decode_errors
 from reelforge.research.search import fetch_source, parse_sources_file
 from reelforge.research.verification import assess_all, extract_candidate_claims
@@ -701,8 +708,16 @@ class Pipeline:
                 elif opened is not None:
                     drops.append((opened, mc.frame / manifest.fps))
                     opened = None
-            sound.write_bed(music_path, duration, drops=drops)
-            music_note = "generated ambient bed (original, reelforge/rendering/sound.py)"
+            # arrangement follows the edit: light during the hook, full groove from the second
+            # section, back on a downbeat right after the twist's music drop
+            first_section = manifest.scenes[0].section_index
+            full_from = next(
+                (s.start_frame / manifest.fps for s in manifest.scenes if s.section_index != first_section), 0.0
+            )
+            anchor = next((mc.frame / manifest.fps for mc in manifest.music_cues if mc.kind == "return"), None)
+            seed = int(hashlib.sha256(job.id.encode()).hexdigest()[:8], 16)
+            sound.write_bed(music_path, duration, drops=drops, seed=seed, full_from=full_from, anchor=anchor)
+            music_note = "original generated lo-fi groove (reelforge/rendering/sound.py), ~92 BPM"
         elif cfg.music not in ("", "none"):
             music_path = Path(cfg.music)
             if not music_path.exists():
@@ -710,6 +725,9 @@ class Pipeline:
             if not cfg.music_licence:
                 raise PipelineError("a music file needs --music-licence describing its licence")
             music_note = f"user-supplied {music_path.name}; licence: {cfg.music_licence}"
+            normalized = work / "music_normalized.wav"
+            ff.run(ff.build_music_normalize_command(music_path, normalized, sound.REFERENCE_LUFS))
+            music_path = normalized
         sfx_path: Path | None = None
         if cfg.sfx:
             sfx_path = work / "sfx.wav"
@@ -728,9 +746,19 @@ class Pipeline:
                 music_db=cfg.music_volume_db,
                 sfx=sfx_path,
                 sfx_db=cfg.sfx_volume_db,
+                music_stem=work / "music_stem.wav" if music_path is not None else None,
             )
         )
+        if music_path is None:
+            (work / "music_stem.wav").unlink(missing_ok=True)
         return mix, music_note
+
+    def _music_report(self, job: JobRecord) -> dict:
+        """How loud the (ducked) music sits under the voice. Empty when the job has no music."""
+        stem = self.work_dir(job) / "music_stem.wav"
+        if self.config(job).music in ("", "none") or not stem.exists():
+            return {}
+        return music_balance(job.output_dir / "narration.wav", stem)
 
     def _validate_output(self, video: Path, manifest: SceneManifest, cfg: JobConfig, scale: float = 1.0) -> dict:
         """Container/codec/size/fps/audio/decode/black/silence + render completion + caption sync."""
@@ -785,6 +813,8 @@ class Pipeline:
             )
         )
         report = self._validate_output(out / "preview.mp4", manifest, cfg, scale=scale)
+        report["music"] = self._music_report(job)
+        report["warnings"] += report["music"].get("warnings", [])
         make_contact_sheet(out / "preview.mp4", manifest, out / "preview_contact_sheet.jpg")
         report["render_seconds"] = render_s
         report["remotion_command"] = res.command
@@ -880,6 +910,8 @@ class Pipeline:
 
         t0 = time.time()
         video_report = self._validate_output(out / "final_reel.mp4", manifest, cfg)
+        video_report["music"] = self._music_report(job)
+        video_report["warnings"] += video_report["music"].get("warnings", [])
         timings["validation"] = round(time.time() - t0, 1)
         t0 = time.time()
         make_contact_sheet(out / "final_reel.mp4", manifest, out / "contact_sheet.jpg")
