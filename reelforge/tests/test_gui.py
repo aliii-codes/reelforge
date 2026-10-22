@@ -17,7 +17,7 @@ def test_gui_shows_jobs_and_state_actions(settings, script_file, monkeypatch):
 
     monkeypatch.setattr(gui, "load_settings", lambda: settings)
     p = Pipeline(settings, log=lambda m: None)
-    job = p.create_from_script(script_file, JobConfig(voice_mode="file", takes=1, fetch_sources=False))
+    job = p.create_from_script(script_file, JobConfig(voice_mode="ask", fetch_sources=False))
 
     qapp = QApplication.instance() or QApplication([])
     w = gui.MainWindow()
@@ -26,13 +26,14 @@ def test_gui_shows_jobs_and_state_actions(settings, script_file, monkeypatch):
     w.jobs.setCurrentRow(0)
     qapp.processEvents()
     labels = [b.text() for b in w.findChildren(QPushButton) if b.isVisibleTo(w)]
-    assert "Record Voice" in labels and "Use an audio file instead…" in labels  # no voice-over yet
+    assert "Record Voice" in labels and "Use AI voice" in labels and "Use an audio file…" in labels
     assert "Approve Script" not in labels
-    assert "Waiting for your voice" in w.state.text() and job.id in w.state.text()
+    assert "Choose the voice" in w.state.text() and job.id in w.state.text()
     assert w.stepper.current == 1 and not w.stepper.failed  # script done, voice is the current step
     assert "HOOK" in w.script_view.toPlainText()
     dlg = gui.NewJobDialog(w)
-    assert dlg.args()[:2] == ["create", "--script-file"] and dlg.args()[-2:] == ["--voice", "file"]
-    dlg._pick("stock")
-    assert "--voice" not in dlg.args()
+    dlg.topic.setText("Why AI struggles with hands")
+    assert dlg.args()[:3] == ["create", "--topic", "Why AI struggles with hands"] and "ask" in dlg.args()
+    dlg._pick("script")
+    assert dlg.args()[:2] == ["create", "--script-file"]
     w.close()

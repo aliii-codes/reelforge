@@ -7,8 +7,6 @@ automatically.
 
 from __future__ import annotations
 
-import json
-
 import httpx
 
 from reelforge.providers.base import LLMProvider, MalformedResponseError, ProviderNotConfigured, post_json
@@ -31,11 +29,15 @@ class GroqProvider(LLMProvider):
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user + "\n\nJSON schema for your reply:\n" + json.dumps(schema)},
+                # every prompt already spells out its JSON shape and replies are validated locally,
+                # so the full schema isn't sent: it costs ~1k tokens against an 8K-tokens/min free limit
+                {"role": "user", "content": user},
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0.7,
         }
+        if self.model.startswith("openai/gpt-oss"):
+            body["reasoning_effort"] = "low"  # far fewer hidden reasoning tokens, plenty for scripts
         data = post_json(
             self._client,
             GROQ_URL,

@@ -46,7 +46,7 @@ from reelforge.rendering.validation import decode_check as validation_decode_err
 from reelforge.research.search import fetch_source, parse_sources_file
 from reelforge.research.verification import assess_all, extract_candidate_claims
 from reelforge.schemas import JobConfig, ResearchBundle, Script, ScriptVersion, TakeReport, Transcript, utcnow
-from reelforge.scripting.generator import gather_research, generate_from_topic, revise_with_llm
+from reelforge.scripting.generator import gather_research, generate_drafts, revise_with_llm
 from reelforge.scripting.manual import parse_script_file
 from reelforge.scripting.validation import validate_script
 from reelforge.visuals.scene_manifest import SceneManifest, validate_manifest
@@ -105,6 +105,8 @@ class Pipeline:
     # ------------------------------------------------------------------ helpers
 
     def _default_engine(self, cfg: JobConfig) -> VoiceEngine:
+        if cfg.voice_mode == "ask":
+            raise PipelineError("no voice chosen yet (record, attach a file, or confirm the AI voice)")
         if cfg.voice_mode == "file":
             if not cfg.narration_file:
                 raise PipelineError("voice_mode 'file' needs --narration PATH")
@@ -257,9 +259,14 @@ class Pipeline:
             manual = parse_sources_file(manual_path) if manual_path.exists() else []
             llm = self._llm_factory(cfg.llm_provider)  # raises if no provider is configured
             if cfg.research:
-                self.log("Researching (Wikipedia/Tavily search + opening pages) ...")
+                try:
+                    queries = llm.run(lambda prov: prov.research_queries(job.topic)).queries
+                except Exception:  # fall back to the topic itself
+                    queries = [job.topic]
+                self.log(f"Researching: {', '.join(queries)} ...")
                 research = gather_research(
                     job.topic,
+                    queries=queries,
                     tavily_key=self.settings.tavily_api_key,
                     contact=self.settings.research_contact,
                     extra_sources=manual,
@@ -272,13 +279,23 @@ class Pipeline:
                     notes=["research disabled for this job"],
                 )
             self.log(f"  {len(research.sources)} sources ({sum(s.fetched for s in research.sources)} opened)")
-            self.log("Generating hooks and script ...")
-            result = generate_from_topic(job.topic, llm, research)
-            result.research.notes.extend(result.notes)
-            self.db.update_job(job.id, title=result.script.title)
+            self.log(f"Writing {cfg.drafts} script draft(s) with different angles ...")
+            results = generate_drafts(job.topic, llm, research, n=cfg.drafts)
+            self.db.update_job(job.id, title=results[0].script.title)
             self.db.set_state(job.id, JobState.AWAITING_SCRIPT_APPROVAL)
-            self.save_version(self.db.get_job(job.id), result.script, result.research, result.origin)
-            self.db.finish_stage(run_id, True, time.time() - t0, details={"providers": result.notes})
+            for k, result in enumerate(results, 1):
+                result.research.notes.extend(n for n in result.notes if not n.startswith("draft:"))
+                style = next((n.split(":", 1)[1] for n in result.notes if n.startswith("draft:")), "")
+                hook = result.script.hooks[result.script.selected_hook or 0].text if result.script.hooks else ""
+                self.save_version(
+                    self.db.get_job(job.id),
+                    result.script,
+                    result.research,
+                    result.origin,
+                    note=f"Draft {k} · {style} · hook: {hook}",
+                )
+                self.log(f"  draft {k}: {style} - {result.script.title}")
+            self.db.finish_stage(run_id, True, time.time() - t0, details={"drafts": len(results)})
         except Exception as e:
             self._fail(job.id, JobState.RESEARCHING, run_id, t0, e)
         return self.db.get_job(job.id)
@@ -316,18 +333,56 @@ class Pipeline:
         if job.state != JobState.AWAITING_SCRIPT_APPROVAL:
             raise PipelineError(f"job is '{job.state}', not awaiting script approval")
         cfg = self.config(job)
+        if cfg.voice_mode == "ask":
+            raise PipelineError(
+                f"choose the voice first: your recording (voice {job.id} --record / --file F) "
+                f"or the AI voice (voice {job.id} --ai)"
+            )
         if cfg.voice_mode == "file" and not cfg.narration_file:
             raise PipelineError(
                 f"no voice-over attached yet: record one (voiceover-record --job {job.id}) or "
                 f"attach a file (voiceover {job.id} --file ...) first"
             )
-        sv = self.load_version(job, version)
+        sv = self.load_version(job, version if version is not None else cfg.picked_version)
         chk = validate_script(sv.script, sv.research)
         if not chk.ok:
             raise PipelineError("script has blocking problems: " + "; ".join(chk.errors))
         self.db.mark_version_approved(job.id, sv.version, sv.content_hash())
         self.db.log(job.id, "approval", f"script v{sv.version} approved (sha256 {sv.content_hash()[:12]})")
         return self.db.set_state(job.id, JobState.GENERATING_VOICE)
+
+    def drafts(self, job: JobRecord) -> list[ScriptVersion]:
+        return [self.load_version(job, r["version"]) for r in self.db.script_versions(job.id)]
+
+    def pick_script(self, job_id: str, version: int) -> JobRecord:
+        """The user chose one of the drafts. It is approved once the voice is decided."""
+        job = self.db.get_job(job_id)
+        if job.state != JobState.AWAITING_SCRIPT_APPROVAL:
+            raise PipelineError(f"job is '{job.state}', not choosing a script")
+        sv = self.load_version(job, version)
+        chk = validate_script(sv.script, sv.research)
+        if not chk.ok:
+            raise PipelineError(f"draft {version} has blocking problems: " + "; ".join(chk.errors))
+        cfg = self.config(job).model_copy(update={"picked_version": version})
+        self.db.update_job(job.id, title=sv.script.title, config_json=json.dumps(cfg.model_dump(mode="json")))
+        self.db.log(job.id, "pick", f"user picked script v{version}")
+        return self.db.get_job(job.id)
+
+    def choose_voice(self, job_id: str, mode: str, file: Path | None = None) -> JobRecord:
+        """`mode`: "file" (the user's recording) or "ai" (a stock AI voice the user confirmed)."""
+        job = self.db.get_job(job_id)
+        if job.state != JobState.AWAITING_SCRIPT_APPROVAL:
+            raise PipelineError(f"job is '{job.state}'; the voice is chosen before the script is approved")
+        if mode == "file":
+            if file is None:
+                raise PipelineError("give the recording file")
+            return self.attach_voiceover(job_id, file)
+        if mode == "ai":
+            cfg = self.config(job).model_copy(update={"voice_mode": "stock", "takes": self.settings.takes})
+            self.db.update_job(job.id, config_json=json.dumps(cfg.model_dump(mode="json")))
+            self.db.log(job.id, "voice", f"user confirmed the AI stock voice '{cfg.stock_voice}' (not their voice)")
+            return self.db.get_job(job.id)
+        raise PipelineError(f"unknown voice choice {mode!r}")
 
     def approve_video(self, job_id: str) -> JobRecord:
         job = self.db.get_job(job_id)

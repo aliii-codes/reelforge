@@ -118,7 +118,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
         ollama_model=_env("OLLAMA_MODEL"),
         llm_timeout_s=_env_float("REELFORGE_LLM_TIMEOUT", 60.0),
         tavily_api_key=_env("TAVILY_API_KEY"),
-        research_contact=_env("REELFORGE_CONTACT"),
+        # Wikimedia blocks API clients without contact info; default to the project's public page
+        research_contact=_env("REELFORGE_CONTACT") or "https://github.com/aliii-codes/reelforge",
         whisper_model=_env("REELFORGE_WHISPER_MODEL", "base.en"),
         whisper_threads=_env_int("REELFORGE_WHISPER_THREADS", 4),
         tts_stock_voice=_env("REELFORGE_STOCK_VOICE", "marius"),

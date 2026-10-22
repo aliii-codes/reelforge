@@ -94,6 +94,14 @@ def needs_recording(j: JobRecord) -> bool:
     return j.config.get("voice_mode") == "file" and not j.config.get("narration_file")
 
 
+def needs_voice(j: JobRecord) -> bool:
+    return j.config.get("voice_mode") == "ask" or needs_recording(j)
+
+
+def needs_pick(j: JobRecord, n_versions: int) -> bool:
+    return j.state == JobState.AWAITING_SCRIPT_APPROVAL and n_versions > 1 and j.config.get("picked_version") is None
+
+
 def status_of(j: JobRecord) -> tuple[str, str]:
     """Short human status and its dot colour."""
     st = j.state
@@ -102,7 +110,9 @@ def status_of(j: JobRecord) -> tuple[str, str]:
     if st == JobState.COMPLETED:
         return "Ready to post", theme.GREEN
     if st == JobState.AWAITING_SCRIPT_APPROVAL:
-        return ("Waiting for your voice" if needs_recording(j) else "Review the script"), theme.ORANGE
+        if j.config.get("picked_version") is None and j.source_kind == "topic":
+            return "Pick a script", theme.ORANGE
+        return ("Choose the voice" if needs_voice(j) else "Review the script"), theme.ORANGE
     if st == JobState.AWAITING_PREVIEW_APPROVAL:
         return "Preview ready", theme.ORANGE
     if st == JobState.AWAITING_VIDEO_APPROVAL:
@@ -263,48 +273,47 @@ class OptionTile(QFrame):
 
 
 class NewJobDialog(QDialog):
-    VOICES = [
-        ("later", "Record my voice next", "Recommended. You'll read the script aloud right after this."),
-        ("file", "Use a recording I already have", "Pick an audio file of you reading the script."),
-        ("stock", "Use a stock voice", "A built-in synthetic voice — clearly labelled as not you."),
+    SOURCES = [
+        ("topic", "From a topic", "ReelForge researches it and writes 3 drafts for you to choose from."),
+        ("script", "From my own script", "Use a script file you wrote."),
     ]
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("New Reel")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(580)
         v = QVBoxLayout(self)
         v.setContentsMargins(26, 22, 26, 20)
         v.setSpacing(10)
         v.addWidget(label("New Reel", "Title"))
-        v.addWidget(label("Choose a script and how it will be narrated.", "Subtitle"))
+        v.addWidget(label("You'll pick a script and choose the voice in the next steps.", "Subtitle"))
         v.addSpacing(6)
-
-        v.addWidget(label("Script", "OptionTitle"))
-        row = QHBoxLayout()
-        self.script = QLineEdit(str(PROJECT_ROOT / "examples" / "voiceover_demo_script.txt"))
-        row.addWidget(self.script, 1)
-        row.addWidget(button("Choose…", "", lambda: self._browse(self.script, "Text (*.txt *.md);;All files (*)")))
-        v.addLayout(row)
-        v.addSpacing(4)
-
-        v.addWidget(label("Voice", "OptionTitle"))
-        self.voice = "later"
+        self.source = "topic"
         self.tiles: dict[str, OptionTile] = {}
-        for key, title, body in self.VOICES:
+        for key, title, body in self.SOURCES:
             tile = OptionTile(title, body, lambda k=key: self._pick(k))
             self.tiles[key] = tile
             v.addWidget(tile)
-        self.narration_row = QWidget()
-        nr = QHBoxLayout(self.narration_row)
-        nr.setContentsMargins(0, 0, 0, 0)
-        self.narration = QLineEdit()
-        self.narration.setPlaceholderText("Your recording (.wav, .m4a, .mp3, .flac, .ogg)")
-        nr.addWidget(self.narration, 1)
-        nr.addWidget(
-            button("Choose…", "", lambda: self._browse(self.narration, "Audio (*.wav *.flac *.m4a *.mp3 *.ogg *.opus)"))
-        )
-        v.addWidget(self.narration_row)
+
+        self.topic_row = QWidget()
+        tr = QVBoxLayout(self.topic_row)
+        tr.setContentsMargins(0, 6, 0, 0)
+        tr.addWidget(label("Topic", "OptionTitle"))
+        self.topic = QLineEdit()
+        self.topic.setPlaceholderText("e.g. Why AI image generators struggle with hands")
+        tr.addWidget(self.topic)
+        v.addWidget(self.topic_row)
+
+        self.script_row = QWidget()
+        sr = QVBoxLayout(self.script_row)
+        sr.setContentsMargins(0, 6, 0, 0)
+        sr.addWidget(label("Script file", "OptionTitle"))
+        row = QHBoxLayout()
+        self.script = QLineEdit(str(PROJECT_ROOT / "examples" / "draft3_script.txt"))
+        row.addWidget(self.script, 1)
+        row.addWidget(button("Choose…", "", lambda: self._browse(self.script, "Text (*.txt *.md);;All files (*)")))
+        sr.addLayout(row)
+        v.addWidget(self.script_row)
 
         v.addSpacing(4)
         self.handle = QLineEdit(load_settings().handle)
@@ -322,22 +331,14 @@ class NewJobDialog(QDialog):
         create.setDefault(True)
         buttons.addWidget(create)
         v.addLayout(buttons)
-        self._pick("later")
-
-    # compatibility with earlier callers/tests
-    @property
-    def voice_later(self) -> _Flag:
-        return _Flag(self.voice == "later")
-
-    @property
-    def voice_file(self) -> _Flag:
-        return _Flag(self.voice == "file")
+        self._pick("topic")
 
     def _pick(self, key: str) -> None:
-        self.voice = key
+        self.source = key
         for k, t in self.tiles.items():
             t.set_selected(k == key)
-        self.narration_row.setVisible(key == "file")
+        self.topic_row.setVisible(key == "topic")
+        self.script_row.setVisible(key == "script")
         self.adjustSize()
 
     def _browse(self, edit: QLineEdit, filt: str) -> None:
@@ -346,20 +347,20 @@ class NewJobDialog(QDialog):
             edit.setText(path)
 
     def _accept(self) -> None:
-        if not Path(self.script.text()).is_file():
-            QMessageBox.warning(self, "Script", "Choose an existing script file.")
+        if self.source == "topic" and len(self.topic.text().strip()) < 4:
+            QMessageBox.warning(self, "Topic", "Type the topic of the reel.")
             return
-        if self.voice == "file" and not Path(self.narration.text()).is_file():
-            QMessageBox.warning(self, "Recording", "Choose your recording, or pick “Record my voice next”.")
+        if self.source == "script" and not Path(self.script.text()).is_file():
+            QMessageBox.warning(self, "Script", "Choose an existing script file.")
             return
         self.accept()
 
     def args(self) -> list[str]:
-        a = ["create", "--script-file", self.script.text()]
-        if self.voice == "file":
-            a += ["--voice", "file", "--narration", self.narration.text()]
-        elif self.voice == "later":
-            a += ["--voice", "file"]  # the reel waits for a recording before it continues
+        if self.source == "topic":
+            a = ["create", "--topic", self.topic.text().strip()]
+        else:
+            a = ["create", "--script-file", self.script.text()]
+        a += ["--voice", "ask", "--no-interactive"]
         if self.handle.text().strip():
             a += ["--handle", self.handle.text().strip()]
         if not self.preview_gate.isChecked():
@@ -721,7 +722,8 @@ class MainWindow(QMainWindow):
         text, _ = status_of(j)
         self.state.setText(f"{text}  ·  created {nice_time(j.created_at)}  ·  {j.id}")
         step = STEP_OF_STATE.get(j.state, STEP_OF_STATE.get(j.failed_stage or JobState.CREATED, 0))
-        if j.state == JobState.AWAITING_SCRIPT_APPROVAL and needs_recording(j):
+        n_versions = len(self.db.script_versions(j.id))
+        if j.state == JobState.AWAITING_SCRIPT_APPROVAL and not needs_pick(j, n_versions) and needs_voice(j):
             step = 1
         self.stepper.set(step, failed=j.state == JobState.FAILED)
         self._fill_script(j)
@@ -742,7 +744,12 @@ class MainWindow(QMainWindow):
         if not rows:
             self.script_view.setHtml(f"<p style='color:{theme.TEXT_2}'>No script yet.</p>")
             return
-        data = json.loads(Path(rows[-1]["path"]).read_text())
+        if needs_pick(j, len(rows)):
+            self.script_view.setHtml("".join(self._draft_html(json.loads(Path(r["path"]).read_text())) for r in rows))
+            return
+        picked = j.approved_version or j.config.get("picked_version")
+        row = next((r for r in rows if r["version"] == picked), rows[-1])
+        data = json.loads(Path(row["path"]).read_text())
         parts = []
         for s in data["script"]["sections"]:
             parts.append(
@@ -758,6 +765,26 @@ class MainWindow(QMainWindow):
                 "sources (automatic check — review before posting).</p>"
             )
         self.script_view.setHtml("".join(parts))
+
+    def _draft_html(self, data: dict) -> str:
+        note = data.get("note", "")
+        angle = note.split(" · ")[1] if note.count(" · ") >= 1 else ""
+        claims = data.get("research", {}).get("claims", [])
+        ok = sum(1 for c in claims if c["status"] in ("auto_supported", "human_verified"))
+        sources = data.get("research", {}).get("sources", [])
+        no_src = not any(src.get("fetched") for src in sources)
+        body = " ".join(html.escape(sec["text"]) for sec in data["script"]["sections"])
+        warn = (
+            f"<span style='color:{theme.RED}'>  ·  written without sources - check every fact</span>" if no_src else ""
+        )
+        return (
+            f"<p style='margin:14px 0 2px 0; font-size:11px; letter-spacing:1px; color:{theme.BLUE}'>"
+            f"DRAFT {data['version']}{' · ' + html.escape(angle.upper()) if angle else ''}</p>"
+            f"<p style='margin:0 0 4px 0; font-size:16px; font-weight:600'>{html.escape(data['script']['title'])}</p>"
+            f"<p style='margin:0 0 6px 0; font-size:14px; line-height:145%'>{body}</p>"
+            f"<p style='margin:0 0 14px 0; font-size:12px; color:{theme.TEXT_2}'>"
+            f"{len(body.split())} words  ·  facts matched in sources: {ok}/{len(claims)}{warn}</p>"
+        )
 
     def _fill_frames(self, j: JobRecord) -> None:
         out = j.output_dir
@@ -852,14 +879,27 @@ class MainWindow(QMainWindow):
                 self.progress_text or "You can keep using your computer. This window updates by itself.",
             )
             self._add("Stop", self.stop_process)
-        elif st == JobState.AWAITING_SCRIPT_APPROVAL and needs_recording(j):
+        elif needs_pick(j, len(self.db.script_versions(j.id))):
+            rows = self.db.script_versions(j.id)
             self._next(
-                "Record your voice-over",
-                "Read the script aloud. We'll check the take, time everything to your voice, "
-                "and build a quick preview.",
+                "Pick your script",
+                f"{len(rows)} drafts with different angles - read them below, then choose one.",
+            )
+            for r in rows:
+                self._add(
+                    f"Use Draft {r['version']}",
+                    lambda v=r["version"]: self.run(["pick", jid, str(v), "--no-interactive"]),
+                    primary=True,
+                )
+        elif st == JobState.AWAITING_SCRIPT_APPROVAL and needs_voice(j):
+            self._next(
+                "How should it be narrated?",
+                "Your own voice sounds most natural. The AI voice is a synthetic stock voice and is "
+                "labelled as not you.",
             )
             self._add("Record Voice", lambda: self.record(j), primary=True)
-            self._add("Use an audio file instead…", lambda: self.attach_file(j))
+            self._add("Use an audio file…", lambda: self.attach_file(j))
+            self._add("Use AI voice", lambda: self.use_ai_voice(j))
         elif st == JobState.AWAITING_SCRIPT_APPROVAL:
             self._next("Approve the script", "Read it below. Approving starts the voice, captions and a quick preview.")
             self._add("Approve Script", lambda: self.run(["approve-script", jid, "--yes"]), primary=True)
@@ -907,8 +947,7 @@ class MainWindow(QMainWindow):
         dlg = NewJobDialog(self)
         if dlg.exec_() != QDialog.Accepted:
             return
-        record_next = dlg.voice == "later"
-        self.run(dlg.args(), on_done=lambda ok: self._after_create(ok, record_next))
+        self.run(dlg.args(), on_done=lambda ok: self._after_create(ok, False))
 
     def _after_create(self, ok: bool, record_next: bool) -> None:
         jobs = self.db.list_jobs()
@@ -938,16 +977,21 @@ class MainWindow(QMainWindow):
             self.attach(j, Path(path))
 
     def attach(self, j: JobRecord, path: Path) -> None:
-        args = ["voiceover", j.id, "--file", str(path)]
         if j.state == JobState.AWAITING_SCRIPT_APPROVAL:
-
-            def then_approve(ok: bool) -> None:  # attach, then run straight through to the preview
-                if ok:
-                    self.run(["approve-script", j.id, "--yes"])
-
-            self.run(args, on_done=then_approve)
+            # sets the voice, approves the chosen script and runs through to the preview
+            self.run(["voice", j.id, "--file", str(path)])
         else:
-            self.run(args)
+            self.run(["voiceover", j.id, "--file", str(path)])
+
+    def use_ai_voice(self, j: JobRecord) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Use the AI voice?",
+            "The reel will be narrated by a synthetic stock voice, not yours. It is labelled as "
+            "an AI voice in the reel's metadata.\n\nUse the AI voice?",
+        )
+        if answer == QMessageBox.Yes:
+            self.run(["voice", j.id, "--ai", "--yes"])
 
     # ---------------------------------------------------------------- process
 

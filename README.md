@@ -98,6 +98,27 @@ uv run python -m reelforge.main benchmark               # render-speed check on 
 (With the venv activated — `source .venv/bin/activate` — you can drop `uv run`, and the
 `reelforge` console script is also available.)
 
+### From a topic: research → 3 drafts → you pick → you choose the voice → video
+
+```bash
+python -m reelforge.main create --topic "Why AI image generators struggle with hands"
+```
+
+1. ReelForge asks the LLM for encyclopedia search queries, opens the matching Wikipedia
+   articles (keeping the relevant paragraphs), and drops off-topic results.
+2. It writes **3 drafts with different angles** (numbers-first, story & analogy, myth-busting),
+   each with its own hook, and shows them side by side with "facts matched in sources".
+3. **It asks which draft you want.**
+4. **It asks how to narrate it:** record your voice now (recommended), use an audio file you
+   already have, or the AI voice (a synthetic stock voice, only after you confirm, and labelled
+   as not you).
+5. It times everything to the voice and builds the quick preview; then the full render.
+
+Non-interactive equivalents: `drafts JOB`, `pick JOB N`, `voice JOB --record | --file F | --ai`.
+The app does the same: **New Reel → From a topic → Use Draft N → Record Voice / audio file / AI voice**.
+Needs `GROQ_API_KEY` and/or `COHERE_API_KEY` in `.env` (when both are set, drafts alternate
+between them to stay inside the free per-minute limits). About 30 s for research + 3 drafts.
+
 ### Recorded voice-over (recommended for natural delivery)
 
 ```bash

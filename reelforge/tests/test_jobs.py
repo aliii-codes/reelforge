@@ -294,3 +294,71 @@ def test_voiceover_job_needs_recording_before_approval(settings, script_file, tm
         p.approve_script(job.id)
     p.attach_voiceover(job.id, write_tone(tmp_path / "vo.wav", 30, sr=48000))
     assert p.approve_script(job.id).state == JobState.GENERATING_VOICE
+
+
+class FakeLLM:
+    """Stands in for Groq/Cohere: canned queries, hooks and one distinct draft per angle."""
+
+    name = "fake"
+    model = "fake-1"
+    label = "fake:fake-1"
+
+    def research_queries(self, topic):
+        from reelforge.providers.base import QueriesOut
+
+        return QueriesOut(queries=[topic])
+
+    def generate_hooks(self, topic, context):
+        from reelforge.providers.base import HookSetOut
+
+        return HookSetOut.model_validate(
+            {"hooks": [{"text": f"Hook {i} about tiny models", "score": 8 - i} for i in range(3)]}
+        )
+
+    def generate_script(self, topic, hook, sources, style=""):
+        from reelforge.providers.base import ScriptDraftOut
+
+        body = "A model is a giant list of numbers called weights, held in memory while it runs. " * 3
+        return ScriptDraftOut.model_validate(
+            {
+                "title": f"Draft angle: {style[:20]}",
+                "sections": [
+                    {"role": "hook", "text": hook + "."},
+                    {"role": "explain", "text": body},
+                    {"role": "twist", "text": "But here's the catch, quality drops when you squeeze too hard."},
+                    {"role": "cta", "text": "Send this to a friend who codes."},
+                ],
+                "claims": [],
+                "caption": "c",
+                "hashtags": ["#AI"],
+            }
+        )
+
+
+def test_topic_gives_drafts_then_pick_then_voice(settings):
+    from reelforge.providers import FallbackLLM
+
+    p = Pipeline(settings, log=lambda m: None, llm_factory=lambda pref: FallbackLLM([FakeLLM()]))
+    job = p.create_from_topic("How small models work", JobConfig(voice_mode="ask", research=False, drafts=3))
+    assert job.state == JobState.AWAITING_SCRIPT_APPROVAL, job.last_error
+    drafts = p.drafts(job)
+    assert [d.version for d in drafts] == [1, 2, 3]
+    assert len({d.script.title for d in drafts}) == 3  # three different angles
+    assert all(" · " in d.note for d in drafts) and drafts[1].script.selected_hook == 1
+    p.pick_script(job.id, 2)
+    assert p.config(p.db.get_job(job.id)).picked_version == 2
+    with pytest.raises(PipelineError, match="choose the voice first"):
+        p.approve_script(job.id)  # never runs without a voice decision
+    p.choose_voice(job.id, "ai")
+    cfg = p.config(p.db.get_job(job.id))
+    assert cfg.voice_mode == "stock"
+    job = p.approve_script(job.id)
+    assert job.approved_version == 2 and job.state == JobState.GENERATING_VOICE  # the picked draft, not the latest
+
+
+def test_choose_voice_with_a_recording(settings, script_file, tmp_path):
+    p, _, _ = make_pipeline(settings, script_file)
+    job = p.create_from_script(script_file, CFG.model_copy(update={"voice_mode": "ask"}))
+    p.choose_voice(job.id, "file", write_tone(tmp_path / "vo.wav", 30, sr=48000))
+    assert p.config(p.db.get_job(job.id)).voice_mode == "file"
+    assert p.approve_script(job.id).state == JobState.GENERATING_VOICE

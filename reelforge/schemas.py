@@ -271,7 +271,8 @@ class TakeReport(StrictModel):
 class JobConfig(StrictModel):
     """Per-job choices, frozen into project_config.json. Never contains secrets."""
 
-    voice_mode: Literal["clone", "stock", "file"] = "stock"
+    # "ask": the user decides after picking a script (record / their file / AI voice, confirmed)
+    voice_mode: Literal["clone", "stock", "file", "ask"] = "stock"
     voice_profile: str = "default"
     stock_voice: str = "marius"
     narration_file: str | None = None
@@ -285,6 +286,8 @@ class JobConfig(StrictModel):
     sfx: bool = True
     sfx_volume_db: float = Field(default=-22.0, le=-10.0)
     llm_provider: str = "auto"
+    drafts: int = Field(default=3, ge=1, le=3)  # script drafts to generate from a topic
+    picked_version: int | None = None  # the draft the user chose (approved once a voice is set)
     research: bool = True
     fetch_sources: bool = True
     handle: str = ""

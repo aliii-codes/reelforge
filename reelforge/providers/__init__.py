@@ -65,9 +65,11 @@ class FallbackLLM:
         self.attempts: list[str] = []
         self.last_used: LLMProvider | None = None
 
-    def run(self, op: Callable[[LLMProvider], T]) -> T:
+    def run(self, op: Callable[[LLMProvider], T], start: int = 0) -> T:
+        """`start` rotates which provider is tried first (spreads load across free-tier limits)."""
         errors = []
-        for p in self.providers:
+        k = start % len(self.providers)
+        for p in self.providers[k:] + self.providers[:k]:
             try:
                 result = op(p)
                 self.attempts.append(f"{p.label}: ok")
