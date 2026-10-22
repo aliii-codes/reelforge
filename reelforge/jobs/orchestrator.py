@@ -791,6 +791,15 @@ class Pipeline:
             else:  # manifests from before audio-driven editing
                 cues = [(s.start_frame / manifest.fps, "whoosh", 0.0) for s in manifest.scenes[1:]]
             sound.write_sfx_track(sfx_path, duration, cues)
+        # Keep the music a fixed distance under *this* voice: recordings are normalised to -16 LUFS,
+        # AI-voice takes only peak-normalised (often ~-28 LUFS), so measure instead of assuming.
+        music_db = cfg.music_volume_db
+        if music_path is not None:
+            from reelforge.voice.voiceover import measure_lufs
+
+            voice_lufs = measure_lufs(job.output_dir / "narration.wav")
+            if voice_lufs is not None and voice_lufs > -60:
+                music_db += voice_lufs - sound.REFERENCE_LUFS
         mix = work / "mix.wav"
         ff.run(
             ff.build_mix_command(
@@ -798,7 +807,7 @@ class Pipeline:
                 output=mix,
                 duration=duration,
                 music=music_path,
-                music_db=cfg.music_volume_db,
+                music_db=music_db,
                 sfx=sfx_path,
                 sfx_db=cfg.sfx_volume_db,
                 music_stem=work / "music_stem.wav" if music_path is not None else None,

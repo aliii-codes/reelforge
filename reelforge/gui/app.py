@@ -888,7 +888,7 @@ class MainWindow(QMainWindow):
             for r in rows:
                 self._add(
                     f"Use Draft {r['version']}",
-                    lambda v=r["version"]: self.run(["pick", jid, str(v), "--no-interactive"]),
+                    lambda _checked=False, v=r["version"]: self.run(["pick", jid, str(v), "--no-interactive"]),
                     primary=True,
                 )
         elif st == JobState.AWAITING_SCRIPT_APPROVAL and needs_voice(j):
