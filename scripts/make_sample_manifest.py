@@ -1,0 +1,169 @@
+"""Regenerate renderer/src/sample.ts: a synthetic, schema-validated manifest used by Remotion
+Studio and `reelforge benchmark`. It exercises every scene type and cue kind. Not real data."""
+
+from __future__ import annotations
+
+import json
+import math
+from pathlib import Path
+
+from reelforge.visuals.scene_manifest import (
+    AvatarTrack,
+    CaptionGroupF,
+    CaptionWordF,
+    Cue,
+    Scene,
+    SceneManifest,
+    SfxCue,
+    StatData,
+    validate_manifest,
+)
+
+FPS = 30
+DUR = FPS * 12
+
+
+def scene(i: int, kind: str, a: int, b: int, **kw) -> Scene:
+    return Scene(id=f"s{i:02d}", type=kind, start_frame=a, end_frame=b, **kw)
+
+
+def main() -> None:
+    mouth = [round(max(0, math.sin(i / 2.3)) * 0.8 * (0.5 + 0.5 * math.sin(i / 17)), 3) for i in range(DUR)]
+    vis = ["aa" if m > 0.5 else "ee" if m > 0.25 else "oo" if m > 0.1 else "rest" for m in mouth]
+    words = "Your phone can run an AI model that fits in 4 GB of memory".split()
+    groups, f = [], 0
+    for i in range(0, len(words), 3):
+        ws = []
+        for w in words[i : i + 3]:
+            ws.append(CaptionWordF(text=w, start_frame=f, end_frame=f + 9, emphasis=w in ("4", "GB")))
+            f += 9
+        groups.append(CaptionGroupF(start_frame=ws[0].start_frame, end_frame=ws[-1].end_frame, words=ws))
+    scenes = [
+        scene(
+            1,
+            "hook",
+            0,
+            45,
+            headline="AI that fits in your pocket",
+            subtext="Did you know?",
+            emphasis=["pocket"],
+            expression="surprised",
+            transition="pop",
+            cues=[Cue(frame=30, kind="emphasis")],
+        ),
+        scene(
+            2,
+            "stat",
+            45,
+            95,
+            headline="Model size",
+            layout="focus",
+            transition="slide",
+            source_label="example.org",
+            stat=StatData(value=3.8, decimals=1, suffix="B", label="parameters on a phone"),
+            cues=[Cue(frame=55, kind="count")],
+        ),
+        scene(
+            3,
+            "demo",
+            95,
+            165,
+            headline="Quantize it",
+            layout="focus",
+            icon="layers",
+            lines=["$ quantize model.gguf q4", "# 16-bit -> 4-bit weights", "size: 14 GB -> 3.5 GB"],
+            cues=[
+                Cue(frame=100, kind="line", index=0),
+                Cue(frame=125, kind="line", index=1),
+                Cue(frame=145, kind="line", index=2),
+            ],
+        ),
+        scene(
+            4,
+            "reveal",
+            165,
+            210,
+            headline="Smaller, but still smart",
+            layout="focus",
+            emphasis=["smart"],
+            cues=[Cue(frame=168 + 6 * i, kind="word", index=i) for i in range(4)],
+        ),
+        scene(
+            5,
+            "diagram",
+            210,
+            260,
+            headline="How it runs",
+            layout="focus",
+            icon="layers",
+            items=["Download weights", "Load into memory", "Run on CPU"],
+            cues=[
+                Cue(frame=214, kind="item", index=0),
+                Cue(frame=228, kind="item", index=1),
+                Cue(frame=242, kind="item", index=2),
+            ],
+        ),
+        scene(
+            6,
+            "comparison",
+            260,
+            290,
+            headline="Cloud vs local",
+            layout="focus",
+            left="Big rented GPUs",
+            right="Your own laptop",
+            cues=[Cue(frame=272, kind="item", index=1)],
+        ),
+        scene(
+            7,
+            "twist",
+            290,
+            320,
+            headline="Smaller models forget more",
+            subtext="BUT…",
+            expression="skeptical",
+            transition="wipe",
+        ),
+        scene(
+            8,
+            "cta",
+            320,
+            DUR,
+            headline="Small models, big impact",
+            subtext="Send this to a friend who codes",
+            expression="happy",
+            emphasis=["big"],
+        ),
+    ]
+    m = SceneManifest(
+        job_id="sample",
+        title="Sample",
+        cover_title="AI that fits in your pocket",
+        duration_frames=DUR,
+        handle="@reelforge",
+        audio_src=None,
+        scenes=scenes,
+        caption_groups=groups,
+        avatar=AvatarTrack(
+            mouth_open=mouth,
+            visemes=vis,
+            blink_frames=[40, 150, 260],
+            emphasis_frames=[30, 55, 200],
+            nod_frames=[90, 205, 315],
+        ),
+        sfx_cues=[SfxCue(frame=45, kind="whoosh"), SfxCue(frame=55, kind="tick")],
+    )
+    errs = validate_manifest(m)
+    if errs:
+        raise SystemExit("sample manifest invalid: " + "; ".join(errs))
+    out = Path(__file__).resolve().parent.parent / "renderer" / "src" / "sample.ts"
+    out.write_text(
+        "// Generated by scripts/make_sample_manifest.py - synthetic data for Studio/benchmarks.\n"
+        'import type { SceneManifest } from "./types";\n\n'
+        f"export const sampleManifest: SceneManifest = {json.dumps(m.model_dump(mode='json'))};\n"
+    )
+    print(f"wrote {out}")
+
+
+if __name__ == "__main__":
+    main()

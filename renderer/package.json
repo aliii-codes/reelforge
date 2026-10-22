@@ -1,0 +1,20 @@
+{
+  "name": "reelforge-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remotion 4 composition for ReelForge AI. Driven by a JSON scene manifest written by the Python pipeline.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.537",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.537"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}

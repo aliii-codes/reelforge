@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Personal voice recordings and cloned-voice state (never commit)
+voice_data/
+
+# Generated jobs, database and renders
+output/
+data/
+renders/
+
+# Renderer
+renderer/node_modules/
+renderer/out/
+
+# Tool caches and logs
+.ruff_cache/
+.mypy_cache/
+*.log
+
+# Third-party reference material (not ours to redistribute)
+techstackbro-pipeline-1page.pdf

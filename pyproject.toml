@@ -1,0 +1,71 @@
+[project]
+name = "reelforge"
+version = "0.1.0"
+description = "ReelForge AI - local-first, free-first faceless vertical video production pipeline"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.8",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+    "pillow>=10.4",
+]
+
+[project.scripts]
+reelforge = "reelforge.main:main"
+reelforge-gui = "reelforge.gui.app:main"
+
+[project.optional-dependencies]
+# Local Whisper transcription (CPU, int8). Model weights are downloaded on first use.
+transcribe = ["faster-whisper>=1.1"]
+# Local TTS + reference-audio voice cloning (Kyutai Pocket TTS, CPU).
+voice = ["pocket-tts>=4.0", "torch>=2.5"]
+# Minimal desktop GUI (PyQt5 wheels bundle Qt; uses the system X/XCB libraries).
+gui = ["PyQt5>=5.15"]
+
+[dependency-groups]
+dev = ["pytest>=8.2", "ruff>=0.6", "mypy>=1.11"]
+
+[tool.uv]
+# CPU-only PyTorch: avoids the ~3 GB CUDA wheels (the GeForce 830M is not usable for this).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["reelforge"]
+
+[tool.pytest.ini_options]
+testpaths = ["reelforge/tests"]
+addopts = "-q"
+markers = ["slow: needs local models or a renderer (deselect with -m 'not slow')"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["B008", "E501", "SIM905"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# PyQt5's bundled stubs omit many runtime enum attributes (Qt.UserRole, QProcess.MergedChannels, ...)
+module = "reelforge.gui.*"
+disable_error_code = ["attr-defined"]
