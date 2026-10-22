@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from reelforge.captions.alignment import CaptionTrack, CaptionWord
 from reelforge.providers.base import ScenePlanOut
 from reelforge.schemas import ClaimStatus, ResearchBundle, Script, ScriptSection, VisualHint
+from reelforge.visuals import director
 from reelforge.visuals.avatar import blink_schedule, mouth_envelope, visemes
 from reelforge.visuals.beats import emphasis_word_indices, plan_segments
 from reelforge.visuals.scene_manifest import (
@@ -21,6 +23,7 @@ from reelforge.visuals.scene_manifest import (
     CaptionGroupF,
     CaptionWordF,
     Cue,
+    MusicCue,
     Scene,
     SceneManifest,
     SfxCue,
@@ -323,7 +326,7 @@ def source_label_text(url: str, domain: str) -> str:
 
 MIN_STEP_FRAMES = 30  # a diagram step / demo line must stay on screen at least this long
 HOLDING_TYPES = {"diagram", "demo"}  # one scene per section; steps appear on narration beats
-FOCUS_TYPES = {"stat", "diagram", "demo", "comparison", "analogy", "reveal"}
+FOCUS_TYPES = {"stat", "diagram", "demo", "comparison", "analogy", "reveal", "bars", "photo"}
 _STOP = {"the", "a", "an", "of", "to", "and", "or", "in", "on", "is", "are", "it", "that", "this", "for", "with"}
 
 
@@ -396,6 +399,46 @@ def _secondary(text: str, role: str, n: int, allow_stat: bool = True) -> dict:
     return {"type": kind, "headline": short_headline(text, 8)}
 
 
+EvidenceFn = Callable[[str, str], dict | None]
+
+
+def _anchor_index(phrase: str, words: list[CaptionWord], lo: int, hi: int) -> int | None:
+    """Index of the word where `phrase` starts being spoken (first 3 content tokens must match)."""
+    want = [_norm(compact_numbers(t)) for t in phrase.split()][:3]
+    want = [w for w in want if w]
+    for i in range(lo, hi):
+        got = [_norm(compact_numbers(words[j].text)) for j in range(i, min(i + len(want), hi))]
+        if got == want:
+            return i
+    return None
+
+
+def _phrases(words: list[CaptionWord], lo: int, hi: int, emph: set[int], max_words: int = 4) -> list[dict]:
+    """Kinetic typography: the spoken words split into short phrases, each word with its frame."""
+    out: list[dict] = []
+    cur: list[dict] = []
+    for i in range(lo, hi):
+        w = words[i]
+        cur.append({"text": w.text, "frame": int(round(w.start * FPS)), "emph": i in emph})
+        if len(cur) >= max_words or re.search(r"[.,!?;:]$", w.text):
+            out.append({"words": cur})
+            cur = []
+    if cur:
+        out.append({"words": cur})
+    return out
+
+
+def _bars(items: list[str]) -> list[dict]:
+    bars = []
+    for it in items:
+        label, _, value = it.partition("=")
+        try:
+            bars.append({"label": label.strip(), "value": float(value.strip())})
+        except ValueError:
+            continue
+    return bars
+
+
 def plan_scenes(
     script: Script,
     track: CaptionTrack,
@@ -403,12 +446,32 @@ def plan_scenes(
     duration_frames: int,
     plan: ScenePlanOut | None = None,
     pace: float = 3.2,
+    evidence: EvidenceFn | None = None,
 ) -> list[Scene]:
     words = track.words
     hints = llm_hints(plan)
-    segs = plan_segments(words, duration_frames / FPS, pace, FPS)
-    beat_frames = sorted({int(round(sg.start * FPS)) for sg in segs})
     emph_idx = emphasis_word_indices(words)
+    emph_set = set(emph_idx)
+
+    # Anchored beats: the author says which phrase each extra visual starts on.
+    section_words: dict[int, tuple[int, int]] = {}
+    for i, w in enumerate(words):
+        lo, hi = section_words.get(w.section_index, (i, i))
+        section_words[w.section_index] = (lo, i + 1)
+    forced: dict[int, list[int]] = {}
+    beat_hints: dict[int, dict[int, VisualHint]] = {}
+    for si, sec in enumerate(script.sections):
+        if si not in section_words or not sec.beats:
+            continue
+        lo, hi = section_words[si]
+        for bh in sec.beats:
+            idx = _anchor_index(bh.at, words, lo + 1, hi) if bh.at else None
+            if idx is not None:
+                forced.setdefault(si, []).append(idx)
+                beat_hints.setdefault(si, {})[idx] = bh
+    section_pace = {si: director.pace_for(sec.role) for si, sec in enumerate(script.sections)}
+    segs = plan_segments(words, duration_frames / FPS, pace, FPS, section_pace, forced)
+    beat_frames = sorted({int(round(sg.start * FPS)) for sg in segs})
 
     raw: list[dict] = []
     by_section: dict[int, list] = {}
@@ -417,39 +480,47 @@ def plan_scenes(
     for si, sec_segs in sorted(by_section.items()):
         sec = script.sections[si] if si < len(script.sections) else script.sections[-1]
         hint = _merge_hint(sec, hints.get(si))
+        anchored = beat_hints.get(si, {})
         primary = _scene_for(sec, hint, sec.text, len(raw))
-        groups = [sec_segs] if primary["type"] in HOLDING_TYPES else [[sg] for sg in sec_segs]
+        holding = primary["type"] in HOLDING_TYPES and not anchored
+        groups = [sec_segs] if holding else [[sg] for sg in sec_segs]
         texts = [" ".join(w.text for w in words[g[0].start_word : g[-1].end_word]) for g in groups]
         primary_at = 0
-        if primary["type"] == "stat" and primary.get("stat") is not None:
+        if not anchored and primary["type"] == "stat" and primary.get("stat") is not None:
             primary_at = next((k for k, t in enumerate(texts) if _says_value(t, primary["stat"].value)), 0)
         for gi, grp in enumerate(groups):
             first, last = grp[0], grp[-1]
             text = texts[gi]
-            if gi == primary_at:
+            seg_hint = anchored.get(first.start_word)
+            if seg_hint is not None:
+                d = _scene_for(sec, seg_hint, text, len(raw))
+                d["source_label"] = None
+                h = seg_hint
+            elif gi == primary_at:
                 d = dict(primary)
-                d["source_label"] = _source_label(si, research)
+                d["source_label"] = None if d["type"] == "twist" else _source_label(si, research)
+                h = hint
             else:
                 d = _scene_for(sec.model_copy(update={"role": "beat"}), VisualHint(), text, len(raw))
                 d.update(_secondary(text, sec.role, len(raw), allow_stat=primary["type"] != "stat"))
-                d["expression"] = (
-                    ("thoughtful", "neutral", "surprised")[len(raw) % 3] if d["type"] != "stat" else "surprised"
-                )
+                if d["type"] == "reveal" and len(text.split()) <= 9:
+                    d["type"] = "kinetic"
+                d["expression"] = "surprised" if d["type"] == "stat" else ("thoughtful", "neutral")[len(raw) % 2]
                 d["source_label"] = None
                 d["subtext"] = ""
                 d["emphasis"] = pick_emphasis(d["headline"]) if d["headline"] else []
-                d["transition"] = ("pop", "fade")[len(raw) % 2]
+                h = VisualHint()
             d.update(
                 start_frame=int(round(first.start * FPS)),
                 end_frame=int(round(last.end * FPS)),
                 section_index=si,
                 _words=(first.start_word, last.end_word),
+                _hint=h,
             )
-            if hint.lines and gi == primary_at:
-                d["lines"] = [ln[:34] for ln in hint.lines[:6]]
+            if h.lines:
+                d["lines"] = [ln[:34] for ln in h.lines[:6]]
             raw.append(d)
 
-    # merge too-short scenes into their predecessor, pin the ends
     merged: list[dict] = []
     for d in raw:
         if merged and d["end_frame"] - d["start_frame"] < 12:
@@ -462,18 +533,20 @@ def plan_scenes(
     for a, b in zip(merged, merged[1:], strict=False):
         a["end_frame"] = b["start_frame"]
 
-    scenes = []
-    for k, d in enumerate(merged):
-        lo, hi = d.pop("_words")
+    for d in merged:
+        lo, hi = d["_words"]
+        h = d["_hint"]
         start, end = d["start_frame"], d["end_frame"]
         cues: list[Cue] = []
-        if d["type"] == "diagram":
+        meta: dict = {}
+        t = d["type"]
+        if t == "diagram":
             fr = _fill_cues(_match_frames(d["items"], words, lo, hi), start, end, beat_frames)
             cues += [Cue(frame=f, kind="item", index=i) for i, f in enumerate(fr)]
-        elif d["type"] == "demo":
+        elif t == "demo":
             fr = _fill_cues(_match_frames(d["lines"], words, lo, hi), start, end, beat_frames)
             cues += [Cue(frame=f, kind="line", index=i) for i, f in enumerate(fr)]
-        elif d["type"] == "stat":
+        elif t == "stat":
             num_words = [i for i in emph_idx if lo <= i < hi]
             value_words = [
                 i
@@ -483,18 +556,61 @@ def plan_scenes(
             pick = value_words[0] if value_words else (num_words[0] if num_words else None)
             f = int(round(words[pick].start * FPS)) if pick is not None else start + 4
             cues.append(Cue(frame=min(max(f, start), end - 6), kind="count"))
-        elif d["type"] in ("comparison", "analogy") and d.get("right"):
-            m = _match_frames([d["right"]], words, lo, hi)[0]
-            f = m if m is not None else start + (end - start) // 3
+        elif t in ("comparison", "analogy", "photo") and d.get("right"):
+            m = _match_frames([d["right"], "jpeg", "smaller"], words, lo, hi)
+            f = next((x for x in m if x is not None), start + (end - start) // 3)
             cues.append(Cue(frame=min(max(f, start + 8), end - 6), kind="item", index=1))
-        elif d["type"] == "reveal":
-            hw = d["headline"].split()
-            spoken = _match_frames(hw, words, lo, hi)
+        elif t == "reveal":
+            spoken = _match_frames(d["headline"].split(), words, lo, hi)
             last_f = start
             for i, maybe in enumerate(spoken):
                 f = maybe if maybe is not None else last_f + 4
                 last_f = min(max(f, last_f), end - 6)
                 cues.append(Cue(frame=last_f, kind="word", index=i))
+        elif t == "kinetic":
+            meta["phrases"] = _phrases(words, lo, hi, emph_set)
+            d["headline"] = ""
+        elif t == "terminal":
+            if h.cast:
+                meta["cast"] = h.cast
+                meta["timing"] = director.terminal_timing(h.cast, start, end)
+                meta["highlight"] = h.quote
+                for k, step in enumerate(meta["timing"]):
+                    cues.append(Cue(frame=min(step["out_at"], end - 1), kind="output", index=k))
+                    if h.quote and any(h.quote.lower() in ln.lower() for ln in h.cast["steps"][k]["output"]):
+                        cues.append(Cue(frame=min(step["out_at"] + 8, end - 1), kind="highlight", index=k))
+            else:
+                d["type"] = "explain"  # never fake terminal footage
+        elif t == "evidence":
+            shot = evidence(h.source, h.quote) if (evidence and h.source and h.quote) else None
+            if shot and shot.get("ok"):
+                d["asset"] = shot["asset"]
+                meta.update({k: shot[k] for k in ("rects", "width", "height", "captured_at", "title") if k in shot})
+            else:
+                meta["fallback"] = True
+            meta["quote"] = h.quote
+            meta["domain"] = source_label_text(h.source, re.sub(r"^https?://(www\.)?([^/]+).*$", r"\2", h.source))
+            cues.append(Cue(frame=min(start + 14, end - 1), kind="highlight"))
+        elif t == "bars":
+            meta["bars"] = _bars(d["items"])
+            meta["suffix"] = h.stat_suffix
+            vals = [b["value"] for b in meta["bars"]]
+            spoken = [
+                next(
+                    (
+                        int(round(words[i].start * FPS))
+                        for i in range(lo, hi)
+                        if _says_value(" ".join(w.text for w in words[i : i + 4]), v)
+                    ),
+                    None,
+                )
+                for v in vals
+            ]
+            fr = _fill_cues(spoken, start, end, beat_frames)
+            cues += [Cue(frame=f, kind="item", index=i) for i, f in enumerate(fr)]
+            d["items"] = []
+        elif t == "meme":
+            d["headline"], d["subtext"] = (h.top or d["headline"])[:60], (h.bottom or d["subtext"])[:70]
         for i in emph_idx:
             if lo <= i < hi:
                 f = int(round(words[i].start * FPS))
@@ -502,23 +618,16 @@ def plan_scenes(
                     cues.append(Cue(frame=f, kind="emphasis"))
         cues.sort(key=lambda c: c.frame)
         d["cues"] = cues
-        d["layout"] = "focus" if d["type"] in FOCUS_TYPES else "center"
+        d["meta"] = meta
+        d["layout"] = "focus" if t in FOCUS_TYPES else "center"
+
+    director.direct(merged, {si: sec.role for si, sec in enumerate(script.sections)})
+    scenes = []
+    for k, d in enumerate(merged):
+        d.pop("_words")
+        d.pop("_hint")
         scenes.append(Scene(id=f"s{k + 1:02d}", **d))
     return scenes
-
-
-def sfx_cues(scenes: list[Scene], min_gap_s: float = 2.5) -> list[SfxCue]:
-    """Whoosh on section changes (major cuts) at least `min_gap_s` apart; a soft tick when a
-    stat starts counting. Most beat cuts stay silent so the SFX don't become noise."""
-    out: list[SfxCue] = []
-    last = -10_000
-    for prev, s in zip(scenes, scenes[1:], strict=False):
-        if s.section_index != prev.section_index and s.start_frame - last >= min_gap_s * FPS:
-            out.append(SfxCue(frame=s.start_frame, kind="whoosh"))
-            last = s.start_frame
-    for s in scenes:
-        out += [SfxCue(frame=c.frame, kind="tick") for c in s.cues if c.kind == "count"]
-    return sorted(out, key=lambda c: c.frame)
 
 
 def avatar_beats(words: list[CaptionWord], emph: list[int], duration_frames: int) -> tuple[list[int], list[int]]:
@@ -578,11 +687,13 @@ def build_manifest(
     handle: str = "",
     plan: ScenePlanOut | None = None,
     pace: float = 3.2,
+    evidence: EvidenceFn | None = None,
 ) -> SceneManifest:
     """Everything is timed from the final narration: captions and cuts from its word timestamps,
     the avatar's mouth from its loudness, SFX from the resulting cuts."""
     duration_frames = int(math.ceil((audio_duration + TAIL_S) * FPS))
-    scenes = plan_scenes(script, track, research, duration_frames, plan, pace)
+    scenes = plan_scenes(script, track, research, duration_frames, plan, pace, evidence)
+    sfx, music = director.sound_cues([s.model_dump() | {"cues": s.cues} for s in scenes])
     mouth = mouth_envelope(narration, FPS, duration_frames)
     emph = emphasis_word_indices(track.words)
     em_frames, nod_frames = avatar_beats(track.words, emph, duration_frames)
@@ -602,5 +713,6 @@ def build_manifest(
             emphasis_frames=em_frames,
             nod_frames=nod_frames,
         ),
-        sfx_cues=sfx_cues(scenes),
+        sfx_cues=[SfxCue(**c) for c in sfx if c["frame"] < duration_frames],
+        music_cues=[MusicCue(**c) for c in music],
     )

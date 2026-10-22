@@ -529,6 +529,32 @@ def claims(
     console.print(f"Saved v{new.version} with {claim_id} = {status_}.")
 
 
+@app.command("capture-terminal")
+def capture_terminal(
+    out: Annotated[Path, typer.Option(help="Where to write the cast JSON (e.g. examples/casts/name.json).")],
+    cmd: Annotated[list[str], typer.Option(help="Command to run and record; repeatable, run in order.")],
+    cwd: Annotated[Path, typer.Option(exists=True, file_okay=False, help="Working directory.")] = Path("."),
+    overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+) -> None:
+    """Record REAL terminal footage: runs each command here and saves its actual output and timing.
+    Reference the cast from a script with `> scene: terminal | cast: casts/name.json`."""
+    from reelforge.visuals.terminal_capture import capture
+
+    if out.exists() and not overwrite:
+        _abort(FileExistsError(f"{out} exists; pass --overwrite to replace it"))
+    console.print("[yellow]These commands will run on this machine:[/]")
+    for c in cmd:
+        console.print(f"  $ {c}")
+    cast = capture(cmd, cwd.resolve())
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(cast.model_dump_json(indent=1))
+    for st in cast.steps:
+        console.print(f"$ {st.command}  [dim](exit {st.exit_code}, {st.seconds}s)[/]")
+        for line in st.output:
+            console.print(f"  {line}", markup=False, highlight=False)
+    console.print(f"[green]Saved[/] {out}")
+
+
 @app.command("approve-preview")
 def approve_preview(job_id: str, yes: Annotated[bool, typer.Option("--yes", "-y")] = False) -> None:
     """Approve the low-resolution preview and start the full 1080x1920 render."""

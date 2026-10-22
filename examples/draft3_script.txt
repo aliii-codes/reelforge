@@ -1,0 +1,53 @@
+# title: How a laptop runs a 7B AI model (draft 3)
+# topic: How quantization lets small AI models run locally
+# caption: Why can a laptop run a 7B AI model? Quantization: storing each weight with fewer bits. Big memory savings, small quality cost, until you squeeze too hard.
+# hashtags: #AI #LLM #Quantization #TechExplained #MachineLearning
+# say: CPU = C P U
+# say: JPEG = jay peg
+
+[hook]
+A seven-billion-parameter AI model can run on an ordinary laptop CPU. No data center required.
+> scene: kinetic
+> at: No data center | scene: meme | top: Data center? | bottom: Not required | expression: happy
+
+[explain]
+Here's how it actually works. A model is a giant list of numbers called parameters, or weights. To use it, your computer has to hold those numbers in memory.
+> scene: kinetic
+> at: A model is | scene: diagram | headline: What running a model means | items: A giant list of numbers ; Called weights ; Held in memory
+
+[number]
+At sixteen-bit precision, every parameter takes two bytes. So seven billion parameters need about fourteen gigabytes, just for the weights.
+> scene: terminal | cast: casts/weights_2_bytes.json | headline: A real model file on this laptop | quote: 2 bytes each
+> at: So seven billion | scene: stat | value: 14 | suffix: GB | label: 7B weights at 16-bit | headline: Memory needed
+
+[beat]
+The trick is quantization. You store each weight with fewer bits, like four instead of sixteen. Now the same model needs roughly three and a half gigabytes.
+> scene: kinetic
+> at: You store each weight | scene: evidence | source: https://huggingface.co/docs/transformers/main/en/quantization/overview | quote: "Quantization lowers the memory requirements of loading and using a model by storing the weights in a lower precision"
+> at: Now the same model | scene: bars | headline: Same model, 4x smaller | items: 16-bit = 14 ; 4-bit = 3.5 | suffix: GB
+
+[analogy]
+Think of it like saving a huge photo as a smaller JPEG. You lose a little detail, but it still looks right.
+> scene: photo | headline: Same picture, far fewer bytes | left: Original | right: Compressed
+
+[twist]
+But here's the catch. Squeeze too hard, down to one or two bits, and quality starts to drop. Those extreme settings need careful calibration just to stay accurate.
+> scene: twist | kicker: BUT… | headline: Here's the catch | expression: skeptical
+> at: Squeeze too hard | scene: kinetic
+> at: Those extreme settings | scene: evidence | source: https://huggingface.co/docs/transformers/main/en/quantization/overview | quote: "Some methods require calibration for greater accuracy and extreme compression (1-2 bits)"
+
+[payoff]
+So small local models aren't magic. They're clever compression.
+> scene: kinetic
+
+[cta]
+Send this to a friend who thinks AI needs a supercomputer.
+> headline: Local AI is just smart math | kicker: Send this to a friend | expression: happy
+
+[claim] One float16 parameter has 16 bits, or 2 bytes, so one billion parameters require 2 gigabytes. | https://en.wikipedia.org/wiki/Large_language_model, https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+[claim] Seven billion parameters at 16-bit precision need about 14 GB for the weights (7 x 2 GB, from the 2 * X GB rule of thumb). | https://huggingface.co/docs/transformers/llm_tutorial_optimization
+[claim] Quantization lowers memory requirements by storing the weights in a lower precision. | https://huggingface.co/docs/transformers/main/en/quantization/overview
+[claim] At 4 bits per weight, seven billion parameters need roughly 3.5 GB (7 billion x 0.5 bytes). | https://huggingface.co/docs/transformers/llm_tutorial_optimization
+[claim] Model weights can be quantized to 8-bit or 4-bit without a significant loss in performance. | https://huggingface.co/docs/transformers/llm_tutorial_optimization
+[claim] Extreme compression to 1-2 bits needs calibration methods for greater accuracy. | https://huggingface.co/docs/transformers/main/en/quantization/overview
+[claim] llama.cpp runs LLM inference on ordinary CPUs and uses integer quantization for reduced memory use. | https://raw.githubusercontent.com/ggml-org/llama.cpp/master/README.md

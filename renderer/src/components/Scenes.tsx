@@ -2,6 +2,10 @@ import React from "react";
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Cue, Layout, Scene, Theme } from "../types";
 import { Icon } from "./Icon";
+import { EvidenceScene, TerminalScene } from "./Footage";
+import { BarsScene, MemeScene, PhotoScene } from "./Graphics";
+import { KineticScene } from "./Kinetic";
+import { cameraStyle, enterStyle, punchScale, shake } from "./Motion";
 
 // Scene graphics live in the upper "panel". "center" layout: y 210..910 with the big avatar
 // below; "focus" layout: y 200..1080 with a small avatar bottom-left. Captions sit at y~1430 and
@@ -196,8 +200,8 @@ const StatScene: React.FC<{ scene: Scene; theme: Theme }> = ({ scene, theme }) =
           fontSize,
           lineHeight: 1,
           color: theme.accent,
-          opacity: 0.25 + 0.75 * Math.min(1, pop),
-          transform: `scale(${0.85 + 0.15 * pop})`,
+          opacity: frame < at ? 0 : 1,
+          transform: `scale(${frame < at ? 0.85 : 2.1 - 1.1 * Math.min(1, pop)})`,
           textShadow: `0 0 50px ${theme.accent}66`,
           fontVariantNumeric: "tabular-nums",
         }}
@@ -440,10 +444,11 @@ const TwistScene: React.FC<{ scene: Scene; theme: Theme }> = ({ scene, theme }) 
         style={{
           fontFamily: theme.font_family,
           fontWeight: 900,
-          fontSize: 170,
-          color: theme.accent2,
+          fontSize: scene.background === "accent" ? 210 : 170,
+          // on the accent (pink) background the word must not be pink itself
+          color: scene.background === "accent" ? "#FFFFFF" : theme.accent2,
           transform: `translateX(${shake}px) scale(${s})`,
-          textShadow: `6px 6px 0 ${theme.accent}`,
+          textShadow: scene.background === "accent" ? "8px 8px 0 #0E0B1F" : `6px 6px 0 ${theme.accent}`,
           lineHeight: 1,
           marginBottom: 36,
         }}
@@ -487,7 +492,7 @@ const CtaScene: React.FC<{ scene: Scene; theme: Theme }> = ({ scene, theme }) =>
   );
 };
 
-const BODY: Record<Scene["type"], React.FC<{ scene: Scene; theme: Theme }>> = {
+const BODY: Partial<Record<Scene["type"], React.FC<{ scene: Scene; theme: Theme }>>> = {
   hook: HookScene,
   explain: ExplainScene,
   stat: StatScene,
@@ -500,61 +505,73 @@ const BODY: Record<Scene["type"], React.FC<{ scene: Scene; theme: Theme }>> = {
   reveal: RevealScene,
 };
 
+const FULL_FRAME: Partial<Record<Scene["type"], React.FC<{ scene: Scene; theme: Theme }>>> = {
+  kinetic: KineticScene,
+  terminal: TerminalScene,
+  evidence: EvidenceScene,
+  bars: BarsScene,
+  photo: PhotoScene,
+  meme: MemeScene,
+};
+
 export const SceneView: React.FC<{ scene: Scene; theme: Theme }> = ({ scene, theme }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const dur = scene.end_frame - scene.start_frame;
-  const enter = spring({ frame, fps, config: { damping: 16, stiffness: 140 }, durationInFrames: 12 });
-  const exit = interpolate(frame, [dur - 6, dur], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  let transform = "";
-  let clip = "none";
-  switch (scene.transition) {
-    case "slide":
-      transform = `translateX(${(1 - enter) * 160}px)`;
-      break;
-    case "pop":
-      transform = `scale(${0.7 + enter * 0.3})`;
-      break;
-    case "wipe":
-      clip = `inset(0 ${(1 - enter) * 100}% 0 0)`;
-      break;
-    default:
-      break;
-  }
-  const Body = BODY[scene.type] ?? ExplainScene;
+  const enter = enterStyle(scene, frame, fps);
+  const camera = cameraStyle(scene, frame, fps);
+  const punch = punchScale(scene, frame);
+  // shake on impacts: the flash cut itself, or a number slamming in
+  const count = scene.cues.find((c) => c.kind === "count");
+  const since = Math.min(
+    scene.transition === "flash" ? frame : 99,
+    count ? frame - (count.frame - scene.start_frame) : 99,
+  );
+  const Full = FULL_FRAME[scene.type];
   const panel = panelFor(scene.layout);
-  const punch = usePunch(scene);
+  const Body = BODY[scene.type] ?? ExplainScene;
   return (
     <div
       style={{
         position: "absolute",
-        left: panel.left,
-        top: panel.top,
-        width: panel.width,
-        height: panel.height,
-        opacity: Math.min(enter, exit),
-        transform: `${transform} scale(${punch * (scene.layout === "focus" ? 1.08 : 1)})`,
-        clipPath: clip,
+        inset: 0,
+        opacity: enter.opacity,
+        transform: `${enter.transform} ${shake(since >= 0 ? since : 99)} ${camera} scale(${punch})`,
+        transformOrigin: "50% 42%",
       }}
     >
-      <Body scene={scene} theme={theme} />
-      {scene.source_label ? (
+      {Full ? (
+        <Full scene={scene} theme={theme} />
+      ) : (
         <div
           style={{
             position: "absolute",
-            bottom: -6,
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            fontFamily: theme.font_family,
-            fontWeight: 600,
-            fontSize: 26,
-            color: "rgba(255,255,255,0.62)",
+            left: panel.left,
+            top: panel.top,
+            width: panel.width,
+            height: panel.height,
+            transform: scene.layout === "focus" ? "scale(1.08)" : "",
           }}
         >
-          Source: {scene.source_label}
+          <Body scene={scene} theme={theme} />
+          {scene.source_label ? (
+            <div
+              style={{
+                position: "absolute",
+                bottom: -6,
+                left: 0,
+                right: 0,
+                textAlign: "center",
+                fontFamily: theme.font_family,
+                fontWeight: 600,
+                fontSize: 26,
+                color: "rgba(255,255,255,0.62)",
+              }}
+            >
+              Source: {scene.source_label}
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

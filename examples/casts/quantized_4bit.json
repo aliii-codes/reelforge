@@ -1,0 +1,25 @@
+{
+ "kind": "reelforge-terminal-cast",
+ "version": 1,
+ "recorded_at": "2026-10-22T11:47:28+00:00",
+ "host": "Linux x86_64, Python 3.12.14",
+ "cwd": "qwen2.5-0.5b",
+ "steps": [
+  {
+   "command": "python3 -c \"print(7e9 * 2 / 1e9, 'GB')\"   # 16-bit",
+   "output": [
+    "14.0 GB"
+   ],
+   "exit_code": 0,
+   "seconds": 0.03
+  },
+  {
+   "command": "python3 -c \"print(7e9 * 0.5 / 1e9, 'GB')\"  # 4-bit",
+   "output": [
+    "3.5 GB"
+   ],
+   "exit_code": 0,
+   "seconds": 0.04
+  }
+ ]
+}

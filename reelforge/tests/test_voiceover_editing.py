@@ -207,9 +207,15 @@ def test_manifest_cues_sfx_and_avatar_beats(tmp_path: Path):
     diagram = next(s for s in m.scenes if s.type == "diagram")
     assert [c.index for c in diagram.cues if c.kind == "item"] == [0, 1, 2]
     assert {s.layout for s in m.scenes} == {"center", "focus"}
-    assert all(c.kind in ("whoosh", "tick") for c in m.sfx_cues) and any(c.kind == "tick" for c in m.sfx_cues)
-    gaps = [b.frame - a.frame for a, b in zip(m.sfx_cues, m.sfx_cues[1:], strict=False) if a.kind == b.kind == "whoosh"]
-    assert all(g >= 75 for g in gaps)
+    # sound follows picture: whooshes only on whip/zoom cuts, an impact when the number lands
+    starts = {s.start_frame: s.transition for s in m.scenes}
+    assert all(starts.get(c.frame) in ("whip", "zoom") for c in m.sfx_cues if c.kind == "whoosh")
+    assert any(c.kind == "impact" and abs(c.frame - count.frame) <= 1 for c in m.sfx_cues) or stat.transition == "flash"
+    assert all(
+        s.transition == "cut"
+        for a, s in zip(m.scenes, m.scenes[1:], strict=False)
+        if a.section_index == s.section_index
+    )
     assert m.avatar.nod_frames and m.avatar.emphasis_frames
     assert any(w.emphasis for g in m.caption_groups for w in g.words)
 

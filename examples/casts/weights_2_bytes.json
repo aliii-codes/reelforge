@@ -1,0 +1,36 @@
+{
+ "kind": "reelforge-terminal-cast",
+ "version": 1,
+ "recorded_at": "2026-10-22T11:47:27+00:00",
+ "host": "Linux x86_64, Python 3.12.14",
+ "cwd": "qwen2.5-0.5b",
+ "steps": [
+  {
+   "command": "du -hL model.safetensors",
+   "output": [
+    "943M    model.safetensors"
+   ],
+   "exit_code": 0,
+   "seconds": 0.0
+  },
+  {
+   "command": "python3 inspect_weights.py model.safetensors",
+   "output": [
+    "params:   494,032,768",
+    "dtype:    BF16  (2 bytes each)",
+    "on disk:  0.99 GB",
+    "per param: 2.00 bytes"
+   ],
+   "exit_code": 0,
+   "seconds": 0.05
+  },
+  {
+   "command": "python3 -c \"print(7e9 * 2 / 1e9, 'GB')\"",
+   "output": [
+    "14.0 GB"
+   ],
+   "exit_code": 0,
+   "seconds": 0.04
+  }
+ ]
+}

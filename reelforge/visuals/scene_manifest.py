@@ -9,9 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from reelforge.schemas import Expression, SceneType
 
 Viseme = Literal["rest", "mbp", "ee", "aa", "oo", "fv"]
-Transition = Literal["fade", "slide", "pop", "wipe"]
+Transition = Literal["fade", "slide", "pop", "wipe", "cut", "whip", "zoom", "flash"]
+Background = Literal["grid", "glow", "accent", "terminal", "paper"]
+Camera = Literal["none", "push", "drift", "punch", "track"]
+AvatarMode = Literal["hidden", "center", "corner", "reaction"]
+SfxKind = Literal["whoosh", "tick", "impact", "riser", "pop", "keys", "shutter"]
 Layout = Literal["center", "focus"]  # focus: bigger graphics panel, small avatar bottom-left
-CueKind = Literal["emphasis", "item", "count", "word", "line"]
+CueKind = Literal["emphasis", "item", "count", "word", "line", "output", "highlight"]
 ICONS = {"chip", "brain", "phone", "bolt", "book", "chart", "bulb", "warning", "share", "layers", "globe", "scale"}
 
 # Layout constants shared with the renderer (1080x1920 canvas).
@@ -41,7 +45,15 @@ class Cue(_M):
 
 class SfxCue(_M):
     frame: int = Field(ge=0)
-    kind: Literal["whoosh", "tick"]
+    kind: SfxKind
+    duration_frames: int = Field(default=0, ge=0)  # for sustained sounds (key clicks while typing)
+
+
+class MusicCue(_M):
+    """Bed automation: drop the music out (e.g. for a dramatic beat) and bring it back."""
+
+    frame: int = Field(ge=0)
+    kind: Literal["drop", "return"]
 
 
 class Scene(_M):
@@ -61,6 +73,12 @@ class Scene(_M):
     source_label: str | None = None
     icon: str = "chip"
     layout: Layout = "center"
+    background: Background = "grid"
+    camera: Camera = "none"
+    avatar: AvatarMode = "center"
+    hide_captions: bool = False  # e.g. kinetic typography already shows the spoken words
+    asset: str | None = None  # file in the job's public dir (evidence screenshot)
+    meta: dict = Field(default_factory=dict)  # per-type data: terminal cast/timing, evidence rects, bars
     cues: list[Cue] = Field(default_factory=list)
     lines: list[str] = Field(default_factory=list, max_length=6)  # demo scene: terminal/output lines
     section_index: int | None = Field(default=None, exclude=True)
@@ -110,7 +128,7 @@ class AvatarTrack(_M):
 
 
 class SceneManifest(_M):
-    schema_version: int = 2
+    schema_version: int = 3
     job_id: str
     title: str
     cover_title: str = Field(default="", max_length=48)
@@ -126,6 +144,7 @@ class SceneManifest(_M):
     caption_groups: list[CaptionGroupF]
     avatar: AvatarTrack
     sfx_cues: list[SfxCue] = Field(default_factory=list)
+    music_cues: list[MusicCue] = Field(default_factory=list)
 
 
 def validate_manifest(m: SceneManifest) -> list[str]:
@@ -158,6 +177,12 @@ def validate_manifest(m: SceneManifest) -> list[str]:
             errs.append(f"scene {s.id} uses unknown icon {s.icon!r}")
         if any(len(it) > 32 for it in s.items):
             errs.append(f"scene {s.id} has a diagram item longer than 32 chars")
+        if s.type == "terminal" and not (s.meta.get("cast") and s.meta.get("timing")):
+            errs.append(f"terminal scene {s.id} needs a recorded cast and its timing")
+        if s.type == "evidence" and not (s.asset or s.meta.get("fallback")):
+            errs.append(f"evidence scene {s.id} has neither a screenshot nor a quote fallback")
+        if s.type == "bars" and len(s.meta.get("bars", [])) < 2:
+            errs.append(f"bars scene {s.id} needs at least two bars")
         if s.type == "demo" and not s.lines:
             errs.append(f"demo scene {s.id} needs lines")
         if any(len(line) > 34 for line in s.lines):

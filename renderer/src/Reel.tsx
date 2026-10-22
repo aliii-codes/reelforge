@@ -4,15 +4,20 @@ import { Avatar, type AvatarPlacement } from "./components/Avatar";
 import { Background } from "./components/Background";
 import { Captions } from "./components/Captions";
 import { SceneView } from "./components/Scenes";
-import type { Layout, SceneManifest } from "./types";
+import type { AvatarMode, SceneManifest } from "./types";
 
-const PLACEMENT: Record<Layout, AvatarPlacement> = {
+// Where the avatar sits for each staging mode. "hidden" parks it below the frame, so switching
+// to/from it animates as a quick exit/entrance.
+const PLACEMENT: Record<AvatarMode, AvatarPlacement> = {
   center: { x: 540, y: 1105, size: 440, lookX: 0, lookY: 0 },
-  // small, bottom-left, looking up-right at the bigger graphics panel
-  focus: { x: 175, y: 1222, size: 220, lookX: 6, lookY: -6 },
+  // small, bottom-left, looking up-right at the graphics
+  corner: { x: 175, y: 1222, size: 220, lookX: 6, lookY: -6 },
+  // big reaction shot for meme beats
+  reaction: { x: 540, y: 950, size: 640, lookX: 0, lookY: 0 },
+  hidden: { x: 540, y: 2400, size: 440, lookX: 0, lookY: 0 },
 };
 
-const usePlacement = (layout: Layout, prev: Layout | undefined, startFrame: number): AvatarPlacement => {
+const usePlacement = (layout: AvatarMode, prev: AvatarMode | undefined, startFrame: number): AvatarPlacement => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const to = PLACEMENT[layout];
@@ -54,7 +59,10 @@ export const Reel: React.FC<SceneManifest> = (m) => {
   const sceneIdx = m.scenes.findIndex((s) => frame >= s.start_frame && frame < s.end_frame);
   const scene = sceneIdx >= 0 ? m.scenes[sceneIdx] : m.scenes[m.scenes.length - 1];
   const prev = sceneIdx > 0 ? m.scenes[sceneIdx - 1] : undefined;
-  const placement = usePlacement(scene?.layout ?? "center", prev?.layout, scene?.start_frame ?? 0);
+  const mode: AvatarMode = scene?.avatar ?? "center";
+  const placement = usePlacement(mode, prev?.avatar, scene?.start_frame ?? 0);
+  const avatarVisible = !(mode === "hidden" && (!prev || prev.avatar === "hidden" || frame - scene.start_frame > 14));
+  const flash = scene && scene.transition === "flash" ? Math.max(0, 1 - (frame - scene.start_frame) / 7) : 0;
   return (
     <AbsoluteFill style={{ backgroundColor: m.theme.bg_to }}>
       <Background theme={m.theme} scene={scene} />
@@ -64,7 +72,7 @@ export const Reel: React.FC<SceneManifest> = (m) => {
           <SceneView scene={s} theme={m.theme} />
         </Sequence>
       ))}
-      {scene ? (
+      {scene && avatarVisible ? (
         <Avatar
           track={m.avatar}
           expression={scene.expression}
@@ -74,7 +82,14 @@ export const Reel: React.FC<SceneManifest> = (m) => {
           placement={placement}
         />
       ) : null}
-      <Captions groups={m.caption_groups} style={m.caption_style} theme={m.theme} />
+      <Captions
+        groups={m.caption_groups}
+        style={m.caption_style}
+        theme={m.theme}
+        hidden={!!scene?.hide_captions || scene?.type === "meme"}
+        backing={scene?.background === "paper"}
+      />
+      {flash > 0 ? <AbsoluteFill style={{ background: "#FFFFFF", opacity: flash * 0.9 }} /> : null}
       <ProgressBar total={m.duration_frames} color={m.theme.accent} />
       {/* Audio only matters in Remotion Studio previews; final renders are --muted and the
           narration/music mix is muxed by FFmpeg in Python. */}

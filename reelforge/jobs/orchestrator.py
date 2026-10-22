@@ -598,6 +598,8 @@ class Pipeline:
             audio_duration=transcript.duration,
             handle=cfg.handle or self.settings.handle,
             plan=self._scene_plan_from_llm(job, sv.script),
+            pace=cfg.edit_pace_s,
+            evidence=self._evidence_capturer(job),
         )
         errs = validate_manifest(manifest)
         if errs:
@@ -607,6 +609,23 @@ class Pipeline:
         public.mkdir(exist_ok=True)
         shutil.copyfile(narration, public / "narration.wav")
         return {"scenes": [f"{s.id}:{s.type}" for s in manifest.scenes], "frames": manifest.duration_frames}
+
+    def _evidence_capturer(self, job: JobRecord):
+        """Capture real source screenshots into the job's public assets (network needed)."""
+        from reelforge.research.evidence import capture_evidence
+
+        public = self.work_dir(job) / "public"
+
+        def capture(url: str, quote: str) -> dict | None:
+            if not self.config(job).fetch_sources:
+                return None
+            self.log(f"  capturing evidence screenshot: {url}")
+            res = capture_evidence(url, quote, public, self.settings.renderer_dir)
+            if not res.get("ok"):
+                self.log(f"  evidence capture failed ({res.get('error')}); using a plain quote card")
+            return res
+
+        return capture
 
     def load_manifest(self, job: JobRecord) -> SceneManifest:
         p = job.output_dir / "scene_manifest.json"
@@ -675,7 +694,14 @@ class Pipeline:
         music_note = "none"
         if cfg.music == "generated":
             music_path = work / "bed.wav"
-            sound.write_bed(music_path, duration)
+            drops, opened = [], None
+            for mc in manifest.music_cues:
+                if mc.kind == "drop":
+                    opened = mc.frame / manifest.fps
+                elif opened is not None:
+                    drops.append((opened, mc.frame / manifest.fps))
+                    opened = None
+            sound.write_bed(music_path, duration, drops=drops)
             music_note = "generated ambient bed (original, reelforge/rendering/sound.py)"
         elif cfg.music not in ("", "none"):
             music_path = Path(cfg.music)
@@ -688,9 +714,9 @@ class Pipeline:
         if cfg.sfx:
             sfx_path = work / "sfx.wav"
             if manifest.sfx_cues:
-                cues = [(c.frame / manifest.fps, c.kind) for c in manifest.sfx_cues]
+                cues = [(c.frame / manifest.fps, c.kind, c.duration_frames / manifest.fps) for c in manifest.sfx_cues]
             else:  # manifests from before audio-driven editing
-                cues = [(s.start_frame / manifest.fps, "whoosh") for s in manifest.scenes[1:]]
+                cues = [(s.start_frame / manifest.fps, "whoosh", 0.0) for s in manifest.scenes[1:]]
             sound.write_sfx_track(sfx_path, duration, cues)
         mix = work / "mix.wav"
         ff.run(

@@ -100,22 +100,40 @@ def segment_section(
     return sorted(cuts)
 
 
-def plan_segments(words: list[CaptionWord], duration: float, pace: float, fps: int = 30) -> list[Segment]:
-    """Split the narration into visual segments aligned to beats."""
+def plan_segments(
+    words: list[CaptionWord],
+    duration: float,
+    pace: float,
+    fps: int = 30,
+    section_pace: dict[int, float] | None = None,
+    forced: dict[int, list[int]] | None = None,
+) -> list[Segment]:
+    """Split the narration into visual segments aligned to beats.
+
+    `section_pace` overrides the target segment length per section (fast hooks, slower
+    explanations). `forced` gives, per section, word indices where the author anchored a new
+    visual (`at:` phrases); those sections are cut exactly there and nowhere else.
+    """
     if not words:
         return []
     beats = candidate_beats(words, fps)
+    lead = ANTICIPATE_FRAMES / fps
     section_starts = [0] + [b.word_index for b in beats if b.reason == "section"]
     bounds = section_starts + [len(words)]
     segs: list[Segment] = []
     for k in range(len(bounds) - 1):
         first, last = bounds[k], bounds[k + 1]
+        si = words[first].section_index
         start = 0.0 if k == 0 else next(b.time for b in beats if b.word_index == first)
         end = duration if last == len(words) else next(b.time for b in beats if b.word_index == last)
-        cuts = segment_section(words, beats, first, last, start, end, pace)
+        anchors = sorted({i for i in (forced or {}).get(si, []) if first < i < last})
+        if anchors:
+            cuts = [(i, max(words[i - 1].end, words[i].start - lead)) for i in anchors]
+        else:
+            cuts = segment_section(words, beats, first, last, start, end, (section_pace or {}).get(si, pace))
         edges = [(first, start)] + cuts + [(last, end)]
         for (a, ta), (b, tb) in zip(edges, edges[1:], strict=False):
-            segs.append(Segment(words[first].section_index, a, b, ta, tb))
+            segs.append(Segment(si, a, b, ta, tb))
     return segs
 
 

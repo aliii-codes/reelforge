@@ -13,6 +13,7 @@ import json
 import re
 import statistics
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 from reelforge.rendering.validation import audio_onset_and_end, check_render_completion
@@ -77,6 +78,37 @@ def metrics(job: Path) -> dict:
         "avatar_gestures": len(av.get("emphasis_frames", [])) + len(av.get("nod_frames", [])),
         "sfx_whooshes": sum(1 for c in sfx if c["kind"] == "whoosh"),
         "sfx_ticks": sum(1 for c in sfx if c["kind"] == "tick"),
+        "transitions": dict(Counter(s.get("transition", "fade") for s in scenes[1:])),
+        "backgrounds": len({s.get("background", "grid") for s in scenes}),
+        "avatar_on_screen_pct": round(
+            100
+            * sum(s["end_frame"] - s["start_frame"] for s in scenes if s.get("avatar", "center") != "hidden")
+            / m["duration_frames"],
+            1,
+        ),
+        "real_footage_s": round(
+            sum(
+                s["end_frame"] - s["start_frame"]
+                for s in scenes
+                if s["type"] == "terminal" or (s["type"] == "evidence" and s.get("asset"))
+            )
+            / FPS,
+            1,
+        ),
+        "text_duplicated_on_screen_s": round(
+            sum(
+                s["end_frame"] - s["start_frame"]
+                for s in scenes
+                if s["type"] == "reveal" and not s.get("hide_captions")
+            )
+            / FPS,
+            1,
+        ),
+        "captions_hidden_s": round(
+            sum(s["end_frame"] - s["start_frame"] for s in scenes if s.get("hide_captions")) / FPS, 1
+        ),
+        "sfx_kinds": dict(Counter(c["kind"] for c in sfx)),
+        "music_drops": sum(1 for c in m.get("music_cues", []) if c["kind"] == "drop"),
         "caption_words": len(cap["words"]),
         "caption_words_interpolated": cap.get("approximate_words", 0),
         "caption_source": cap.get("words_source", "script"),
@@ -93,9 +125,9 @@ def main() -> None:
     args = ap.parse_args()
     a, b = metrics(args.a), metrics(args.b)
     width = max(len(k) for k in a)
-    print(f"{'metric'.ljust(width)}  {'A':>22}  {'B':>22}")
+    print(f"{'metric'.ljust(width)}  {'A':>40}  {'B':>40}")
     for k in a:
-        print(f"{k.ljust(width)}  {str(a[k])[:22]:>22}  {str(b[k])[:22]:>22}")
+        print(f"{k.ljust(width)}  {str(a[k])[:40]:>40}  {str(b[k])[:40]:>40}")
     if args.out:
         args.out.write_text(json.dumps({"a": a, "b": b}, indent=2))
         print(f"wrote {args.out}")

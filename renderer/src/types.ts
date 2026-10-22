@@ -11,13 +11,22 @@ export type SceneType =
   | "twist"
   | "cta"
   | "demo"
-  | "reveal";
+  | "reveal"
+  | "kinetic"
+  | "terminal"
+  | "evidence"
+  | "bars"
+  | "meme"
+  | "photo";
 
 export type Expression = "neutral" | "surprised" | "thoughtful" | "happy" | "skeptical";
-export type Transition = "fade" | "slide" | "pop" | "wipe";
+export type Transition = "fade" | "slide" | "pop" | "wipe" | "cut" | "whip" | "zoom" | "flash";
+export type BackgroundMode = "grid" | "glow" | "accent" | "terminal" | "paper";
+export type Camera = "none" | "push" | "drift" | "punch" | "track";
+export type AvatarMode = "hidden" | "center" | "corner" | "reaction";
 export type Viseme = "rest" | "mbp" | "ee" | "aa" | "oo" | "fv";
 export type Layout = "center" | "focus";
-export type CueKind = "emphasis" | "item" | "count" | "word" | "line";
+export type CueKind = "emphasis" | "item" | "count" | "word" | "line" | "output" | "highlight";
 
 // A visual change inside a scene, at the absolute frame its word is spoken.
 export interface Cue {
@@ -28,7 +37,43 @@ export interface Cue {
 
 export interface SfxCue {
   frame: number;
-  kind: "whoosh" | "tick";
+  kind: "whoosh" | "tick" | "impact" | "riser" | "pop" | "keys" | "shutter";
+  duration_frames: number;
+}
+
+export interface MusicCue {
+  frame: number;
+  kind: "drop" | "return";
+}
+
+// Per-type scene data (scene.meta), produced by the Python planner.
+export interface CastStep {
+  command: string;
+  output: string[];
+  exit_code: number;
+  seconds: number;
+}
+export interface TerminalMeta {
+  cast: { recorded_at: string; host: string; cwd: string; steps: CastStep[] };
+  timing: { type_start: number; type_end: number; out_at: number }[];
+  highlight: string;
+}
+export interface EvidenceMeta {
+  rects?: { x: number; y: number; w: number; h: number }[];
+  width?: number;
+  height?: number;
+  captured_at?: string;
+  title?: string;
+  quote: string;
+  domain: string;
+  fallback?: boolean;
+}
+export interface KineticMeta {
+  phrases: { words: { text: string; frame: number; emph: boolean }[] }[];
+}
+export interface BarsMeta {
+  bars: { label: string; value: number }[];
+  suffix: string;
 }
 
 export interface StatData {
@@ -56,6 +101,12 @@ export interface Scene {
   source_label: string | null;
   icon: string;
   layout: Layout;
+  background: BackgroundMode;
+  camera: Camera;
+  avatar: AvatarMode;
+  hide_captions: boolean;
+  asset: string | null;
+  meta: Record<string, unknown>;
   cues: Cue[];
   lines: string[];
 }
@@ -120,4 +171,5 @@ export type SceneManifest = {
   caption_groups: CaptionGroup[];
   avatar: AvatarTrack;
   sfx_cues: SfxCue[];
+  music_cues: MusicCue[];
 };

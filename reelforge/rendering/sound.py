@@ -63,8 +63,28 @@ def whoosh(length: float = 0.45, seed: int = 0) -> np.ndarray:
     return y / (np.max(np.abs(y)) + 1e-9) * 0.5
 
 
-def write_bed(path: Path, duration: float) -> None:
-    sf.write(path, ambient_bed(duration), SR, subtype="PCM_16")
+def write_bed(
+    path: Path, duration: float, drops: list[tuple[float, float]] | None = None, fade_out: float = 1.5
+) -> None:
+    """Music bed with automation: silent during `drops` (start, end in seconds, 80 ms ramps) and a
+    fade-out at the end."""
+    bed = ambient_bed(duration)
+    n = len(bed)
+    env = np.ones(n, dtype=np.float32)
+    ramp = int(0.08 * SR)
+    for t0, t1 in drops or []:
+        a, b = max(0, int(t0 * SR)), min(n, int(t1 * SR))
+        if b <= a:
+            continue
+        env[a:b] = 0
+        lo = max(0, a - ramp)
+        env[lo:a] = np.minimum(env[lo:a], np.linspace(1, 0, a - lo))
+        hi = min(n, b + ramp)
+        env[b:hi] = np.minimum(env[b:hi], np.linspace(0, 1, hi - b))
+    f = min(n, int(fade_out * SR))
+    if f:
+        env[-f:] *= np.linspace(1, 0, f)
+    sf.write(path, bed * env, SR, subtype="PCM_16")
 
 
 def tick(length: float = 0.12) -> np.ndarray:
@@ -75,19 +95,101 @@ def tick(length: float = 0.12) -> np.ndarray:
     return (y / (np.max(np.abs(y)) + 1e-9) * 0.35).astype(np.float32)
 
 
-def write_sfx_track(path: Path, duration: float, cues: Sequence[float | tuple[float, str]]) -> None:
-    """Place SFX at cue times. Cues are times (whoosh) or (time, kind) with kind in
-    {"whoosh", "tick"}. Whooshes start slightly before the cue so they peak on the cut."""
+def impact(length: float = 0.55, seed: int = 0) -> np.ndarray:
+    """Low thump with a short noisy transient - lands with a number slam or a flash cut."""
+    n = int(length * SR)
+    t = np.arange(n, dtype=np.float32) / SR
+    freq = 40 + 70 * np.exp(-t * 18)
+    body = np.sin(2 * np.pi * np.cumsum(freq) / SR) * np.exp(-t * 7)
+    noise = np.random.default_rng(seed).standard_normal(n).astype(np.float32) * np.exp(-t * 60) * 0.35
+    y = body + noise
+    return (y / (np.max(np.abs(y)) + 1e-9) * 0.9).astype(np.float32)
+
+
+def riser(length: float, seed: int = 0) -> np.ndarray:
+    """Rising filtered noise + pitch, ending exactly at the cut it leads into."""
+    n = max(1, int(length * SR))
+    t = np.linspace(0, 1, n, dtype=np.float32)
+    rng = np.random.default_rng(seed)
+    noise = rng.standard_normal(n).astype(np.float32)
+    out = np.zeros(n, dtype=np.float32)
+    acc = 0.0
+    cut = 0.02 + 0.3 * t**2
+    for i in range(n):
+        acc += cut[i] * (noise[i] - acc)
+        out[i] = acc
+    tone = np.sin(2 * np.pi * np.cumsum(220 + 660 * t**2) / SR) * 0.25
+    y = (out + tone) * (t**1.6)
+    return (y / (np.max(np.abs(y)) + 1e-9) * 0.5).astype(np.float32)
+
+
+def pop(length: float = 0.09) -> np.ndarray:
+    n = int(length * SR)
+    t = np.arange(n, dtype=np.float32) / SR
+    y = np.sin(2 * np.pi * np.cumsum(1100 - 500 * t / length) / SR) * np.exp(-t * 55)
+    return (y / (np.max(np.abs(y)) + 1e-9) * 0.4).astype(np.float32)
+
+
+def keys(length: float, seed: int = 0) -> np.ndarray:
+    """Soft keyboard clicks (~15/s with jitter) for the time a command is being typed."""
+    n = max(1, int(length * SR))
+    rng = np.random.default_rng(seed)
+    out = np.zeros(n, dtype=np.float32)
+    click_n = int(0.012 * SR)
+    t = 0.0
+    while t < length - 0.02:
+        a = int(t * SR)
+        c = rng.standard_normal(click_n).astype(np.float32) * np.exp(-np.arange(click_n) / (click_n / 5))
+        c = (np.convolve(c, np.ones(4) / 4, mode="same") * rng.uniform(0.5, 1.0)).astype(np.float32)
+        b = min(n, a + click_n)
+        out[a:b] += c[: b - a]
+        t += rng.uniform(0.045, 0.09)
+    return (out / (np.max(np.abs(out)) + 1e-9) * 0.3).astype(np.float32)
+
+
+def shutter() -> np.ndarray:
+    """Two quick mechanical clicks, for a screenshot landing on screen."""
+    n = int(0.12 * SR)
+    out = np.zeros(n, dtype=np.float32)
+    rng = np.random.default_rng(3)
+    for start in (0.0, 0.045):
+        a = int(start * SR)
+        k = int(0.018 * SR)
+        click = rng.standard_normal(k).astype(np.float32) * np.exp(-np.arange(k) / (k / 6))
+        out[a : a + k] += click
+    return (out / (np.max(np.abs(out)) + 1e-9) * 0.45).astype(np.float32)
+
+
+def write_sfx_track(path: Path, duration: float, cues: Sequence) -> None:
+    """Place SFX at cue times. A cue is a time (whoosh), (time, kind) or (time, kind, length_s).
+    Whooshes start slightly early so they peak on the cut; risers end on their target."""
     n = int(duration * SR)
     out = np.zeros(n, dtype=np.float32)
     for i, cue in enumerate(cues):
         if isinstance(cue, tuple):
             t, kind = float(cue[0]), cue[1]
+            length = float(cue[2]) if len(cue) > 2 else 0.0
         else:
-            t, kind = float(cue), "whoosh"
-        sample = tick() if kind == "tick" else whoosh(seed=i)
-        lead = 0.0 if kind == "tick" else 0.2
+            t, kind, length = float(cue), "whoosh", 0.0
+        lead = 0.0
+        if kind == "tick":
+            sample = tick()
+        elif kind == "impact":
+            sample = impact(seed=i)
+        elif kind == "riser":
+            sample = riser(max(length, 0.6), seed=i)
+        elif kind == "pop":
+            sample = pop()
+        elif kind == "keys":
+            sample = keys(max(length, 0.15), seed=i)
+        elif kind == "shutter":
+            sample = shutter()
+        else:
+            sample, lead = whoosh(seed=i), 0.2
         a = max(0, int((t - lead) * SR))
         b = min(n, a + len(sample))
         out[a:b] += sample[: b - a]
-    sf.write(path, np.clip(out, -1, 1), SR, subtype="PCM_16")
+    peak = float(np.max(np.abs(out))) if n else 0.0
+    if peak > 1:
+        out /= peak
+    sf.write(path, out, SR, subtype="PCM_16")

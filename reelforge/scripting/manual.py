@@ -53,6 +53,12 @@ _HINT_KEYS = {
     "label": "stat_label",
     "icon": "icon",
     "expression": "expression",
+    "at": "at",
+    "cast": "cast",
+    "source": "source",
+    "quote": "quote",
+    "top": "top",
+    "bottom": "bottom",
 }
 
 
@@ -60,8 +66,8 @@ class ScriptParseError(ValueError):
     pass
 
 
-def _parse_hint(line: str, hint: dict) -> None:
-    for part in line.split("|"):
+def _parse_hint(line: str, hint: dict, base_dir: Path | None = None) -> None:
+    for part in _split_hint(line):
         if ":" not in part:
             continue
         k, _, v = part.partition(":")
@@ -73,8 +79,30 @@ def _parse_hint(line: str, hint: dict) -> None:
             hint[key] = [x.strip() for x in v.split(";") if x.strip()]
         elif key == "stat_value":
             hint[key] = float(v.replace(",", ""))
+        elif key == "cast":
+            from reelforge.visuals.terminal_capture import load_cast
+
+            path = Path(v) if Path(v).is_absolute() or base_dir is None else base_dir / v
+            if not path.exists():
+                raise ScriptParseError(f"terminal cast not found: {path} (record one with `capture-terminal`)")
+            hint[key] = load_cast(path).model_dump(mode="json")
         else:
-            hint[key] = v
+            hint[key] = v.strip('"')
+
+
+def _split_hint(line: str) -> list[str]:
+    """Split on '|' but keep quoted values (quotes may contain '|' or ':') intact."""
+    parts, buf, quoted = [], "", False
+    for ch in line:
+        if ch == '"':
+            quoted = not quoted
+        if ch == "|" and not quoted:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    parts.append(buf)
+    return parts
 
 
 def infer_role(index: int, total: int, text: str) -> str:
@@ -96,7 +124,9 @@ def infer_role(index: int, total: int, text: str) -> str:
     return "beat"
 
 
-def parse_script_text(raw: str, fallback_title: str = "Untitled reel") -> tuple[Script, ResearchBundle, dict[str, str]]:
+def parse_script_text(
+    raw: str, fallback_title: str = "Untitled reel", base_dir: Path | None = None
+) -> tuple[Script, ResearchBundle, dict[str, str]]:
     """Returns (script, research bundle with manual sources/claims, pronunciation map)."""
     meta: dict[str, str] = {}
     say: dict[str, str] = {}
@@ -134,13 +164,18 @@ def parse_script_text(raw: str, fallback_title: str = "Untitled reel") -> tuple[
             if role not in ROLES:
                 raise ScriptParseError(f"line {lineno}: unknown section tag [{tag}]")
             used_markup = True
-            current = {"role": role, "lines": [rest] if rest else [], "hint": {}}
+            current = {"role": role, "lines": [rest] if rest else [], "hints": [{}]}
             blocks.append(current)
             continue
         if s.startswith(">"):
             if current is None:
                 raise ScriptParseError(f"line {lineno}: visual hint outside a section")
-            _parse_hint(s[1:].strip(), current["hint"])
+            body = s[1:].strip()
+            last = current["hints"][-1]
+            # a new `scene:` or `at:` after a complete hint starts the visual for the next beat
+            if re.match(r"^(scene|at)\s*:", body, re.I) and ("scene" in last or "at" in last):
+                current["hints"].append({})
+            _parse_hint(body, current["hints"][-1], base_dir)
             continue
         if current is not None:
             if s:
@@ -153,12 +188,18 @@ def parse_script_text(raw: str, fallback_title: str = "Untitled reel") -> tuple[
 
     if not used_markup:
         paras = [" ".join(p) for p in plain_paragraphs if p]
-        blocks = [{"role": infer_role(i, len(paras), p), "lines": [p], "hint": {}} for i, p in enumerate(paras)]
+        blocks = [{"role": infer_role(i, len(paras), p), "lines": [p], "hints": [{}]} for i, p in enumerate(paras)]
     if not blocks:
         raise ScriptParseError("script file contains no narration text")
 
     sections = [
-        ScriptSection(role=b["role"], text=" ".join(b["lines"]), visual=VisualHint(**b["hint"])) for b in blocks
+        ScriptSection(
+            role=b["role"],
+            text=" ".join(b["lines"]),
+            visual=VisualHint(**b["hints"][0]),
+            beats=[VisualHint(**h) for h in b["hints"][1:]],
+        )
+        for b in blocks
     ]
     hashtags = [h if h.startswith("#") else f"#{h}" for h in meta.get("hashtags", "").split()]
     script = Script(
@@ -197,7 +238,9 @@ def _locate(claim_text: str, sections: list[ScriptSection]) -> int | None:
 
 
 def parse_script_file(path: Path) -> tuple[Script, ResearchBundle, dict[str, str]]:
-    return parse_script_text(path.read_text(encoding="utf-8"), fallback_title=path.stem.replace("_", " ").title())
+    return parse_script_text(
+        path.read_text(encoding="utf-8"), fallback_title=path.stem.replace("_", " ").title(), base_dir=path.parent
+    )
 
 
 __all__ = ["Claim", "ScriptParseError", "parse_script_file", "parse_script_text"]

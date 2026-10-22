@@ -15,7 +15,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 WORDS_PER_SECOND_ESTIMATE = 2.6
 
 SectionRole = Literal["hook", "explain", "beat", "number", "analogy", "twist", "payoff", "cta"]
-SceneType = Literal["hook", "explain", "stat", "analogy", "diagram", "comparison", "twist", "cta", "demo", "reveal"]
+SceneType = Literal[
+    "hook",
+    "explain",
+    "stat",
+    "analogy",
+    "diagram",
+    "comparison",
+    "twist",
+    "cta",
+    "demo",
+    "reveal",
+    "kinetic",
+    "terminal",
+    "evidence",
+    "bars",
+    "meme",
+    "photo",
+]
 Expression = Literal["neutral", "surprised", "thoughtful", "happy", "skeptical"]
 
 
@@ -46,12 +63,25 @@ class VisualHint(StrictModel):
     icon: str = ""
     expression: Expression | None = None
     lines: list[str] = Field(default_factory=list)  # demo scene: terminal/output lines
+    # Audio-anchored editing: this visual starts when this phrase is spoken (beats after the first).
+    at: str = ""
+    # Real terminal footage recorded with `capture-terminal` (embedded so the approved script is
+    # self-contained and its hash covers the footage).
+    cast: dict | None = None
+    # Evidence: a real screenshot of `source` with `quote` highlighted (captured at planning time).
+    source: str = ""
+    quote: str = ""
+    # Meme beat: top/bottom impact text over an avatar reaction.
+    top: str = ""
+    bottom: str = ""
 
 
 class ScriptSection(StrictModel):
     role: SectionRole
     text: str
     visual: VisualHint = Field(default_factory=VisualHint)
+    # Further visuals for later beats of this section, each anchored with `at`.
+    beats: list[VisualHint] = Field(default_factory=list)
 
     @field_validator("text")
     @classmethod
@@ -252,7 +282,7 @@ class JobConfig(StrictModel):
     music_licence: str = ""
     music_volume_db: float = Field(default=-30.0, le=-12.0)
     sfx: bool = True
-    sfx_volume_db: float = Field(default=-26.0, le=-10.0)
+    sfx_volume_db: float = Field(default=-22.0, le=-10.0)
     llm_provider: str = "auto"
     research: bool = True
     fetch_sources: bool = True

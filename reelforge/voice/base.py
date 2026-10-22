@@ -79,8 +79,8 @@ class RecordedNarration(VoiceEngine):
             raise VoiceUnavailable(f"voice-over file not found: {path}")
         self.path = path
         self.options = options if isinstance(options, ProcessingOptions) else ProcessingOptions()
-        self.voice_label = "your recorded voice-over"
-        self.provenance = f"user-recorded voice-over ({path.name}), processed: {self.options.key()}"
+        self.voice_label = "user-provided voice-over file"
+        self.provenance = f"user-provided voice-over file ({path.name}; whose voice it is is not verified), processed: {self.options.key()}"
         self.licence_note = "the user's own recording"
         self.last_report: dict | None = None
 
