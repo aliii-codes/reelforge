@@ -77,6 +77,8 @@ def _parse_hint(line: str, hint: dict, base_dir: Path | None = None) -> None:
         v = v.strip()
         if key in ("items", "lines"):
             hint[key] = [x.strip() for x in v.split(";") if x.strip()]
+            if key == "items" and len(hint[key]) > 4:  # scene graphics show at most 4; fail before narrating
+                raise ScriptParseError(f"'items' has {len(hint[key])} entries; a scene shows at most 4: {v}")
         elif key == "stat_value":
             hint[key] = float(v.replace(",", ""))
         elif key == "cast":

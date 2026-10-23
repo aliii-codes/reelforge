@@ -195,7 +195,9 @@ def align_script_to_transcript(script: Script, transcript: Transcript) -> list[C
         i = j
 
     final = [w for w in words if w is not None]
-    # Enforce monotonic, non-overlapping timing.
+    # Enforce monotonic, non-overlapping timing (Whisper can report a zero-length first word).
+    if final and final[0].end <= final[0].start:
+        final[0].end = round(final[0].start + 0.06, 3)
     for k in range(1, len(final)):
         if final[k].start < final[k - 1].end:
             mid = max(final[k - 1].start + 0.04, min(final[k].start, final[k - 1].end))
