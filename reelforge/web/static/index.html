@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReelForge</title>
+<style>
+:root {
+  --bg: #f5f5f7; --side: #ececf0; --card: #ffffff; --line: #e3e3e8;
+  --text: #1d1d1f; --text2: #6e6e73; --text3: #a1a1a6;
+  --blue: #0071e3; --green: #28a745; --orange: #f5a623; --red: #e5383b;
+  --sel: #dcdce2; --log: #1d1d1f; --logtext: #d6d6d6;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161618; --side: #1e1e21; --card: #232326; --line: #333338;
+    --text: #f2f2f4; --text2: #9e9ea6; --text3: #6b6b73;
+    --blue: #3b93ff; --green: #34c759; --orange: #ffb340; --red: #ff5a5f;
+    --sel: #2e2e33; --log: #0e0e10; --logtext: #c8c8c8;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  display: flex;
+}
+button { font: inherit; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+input[type=text] {
+  font: inherit; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;
+}
+input[type=text]:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+
+/* sidebar */
+aside { width: 280px; flex: none; background: var(--side); border-right: 1px solid var(--line);
+        display: flex; flex-direction: column; padding: 18px 10px 12px; }
+.side-head { display: flex; align-items: center; padding: 0 6px 10px 10px; }
+.side-head h2 { margin: 0; font-size: 20px; flex: 1; }
+.round { width: 30px; height: 30px; border-radius: 50%; border: none; background: var(--blue); color: #fff;
+         font-size: 19px; line-height: 1; }
+#reels { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+#reels li { padding: 9px 12px; border-radius: 9px; cursor: pointer; margin-bottom: 2px; }
+#reels li:hover { background: color-mix(in srgb, var(--sel) 55%, transparent); }
+#reels li.sel { background: var(--sel); }
+.row-title { font-weight: 600; font-size: 13.5px; }
+.row-sub { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.tone-red { background: var(--red); } .tone-green { background: var(--green); }
+.tone-orange { background: var(--orange); } .tone-blue { background: var(--blue); }
+
+/* main */
+main { flex: 1; min-width: 0; overflow-y: auto; padding: 26px 32px 18px; display: flex; flex-direction: column; gap: 14px; }
+h1 { margin: 0; font-size: 26px; letter-spacing: -.3px; }
+.subtitle { color: var(--text2); font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.empty { margin: auto; text-align: center; }
+.empty h1 { font-size: 30px; margin-bottom: 6px; }
+
+/* stepper */
+.stepper { display: flex; padding: 4px 0 0; }
+.step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; font-size: 12.5px; color: var(--text2); }
+.step::before { content: ""; position: absolute; top: 11px; right: calc(50% + 15px); left: calc(-50% + 15px); height: 2px; background: var(--line); }
+.step:first-child::before { display: none; }
+.step.done::before, .step.here::before { background: var(--blue); }
+.circle { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); background: var(--card);
+          display: grid; place-items: center; margin-bottom: 6px; color: #fff; font-size: 12px; font-weight: 700; }
+.step.done .circle { background: var(--blue); border-color: var(--blue); }
+.step.here .circle { border-color: var(--blue); }
+.step.here .circle::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); }
+.step.here.failed .circle { border-color: var(--red); }
+.step.here.failed .circle::after { background: var(--red); }
+.step.done, .step.here { color: var(--text); }
+.step.here { font-weight: 600; }
+
+/* next-step card */
+.next { padding: 18px 22px; }
+.next h3 { margin: 0 0 4px; font-size: 17px; }
+.next p { margin: 0; color: var(--text2); white-space: pre-wrap; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.btn { border: none; border-radius: 980px; padding: 8px 18px; background: transparent; color: var(--blue); font-weight: 500; }
+.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--blue) 10%, transparent); }
+.btn.primary { background: var(--blue); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--blue) 88%, black); }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 12px; }
+.bar > div { height: 100%; background: var(--blue); border-radius: 3px; transition: width .4s; }
+.bar.indeterminate > div { width: 30%; animation: slide 1.3s ease-in-out infinite; }
+@keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+
+/* content tabs */
+.content { padding: 14px 18px; flex: 1; min-height: 260px; display: flex; flex-direction: column; }
+.seg { display: inline-flex; background: var(--bg); border-radius: 9px; padding: 2px; align-self: flex-start; margin-bottom: 12px; }
+.seg button { border: none; background: transparent; color: var(--text); padding: 5px 16px; border-radius: 7px; font-size: 13px; }
+.seg button.on { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.15); font-weight: 600; }
+.pane { overflow-y: auto; }
+.role { font-size: 10.5px; letter-spacing: 1px; color: var(--text3); margin: 0 0 2px; }
+.sect { margin: 0 0 14px; font-size: 14.5px; }
+.draft { padding: 4px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.draft:last-child { border: none; }
+.draft-tag { font-size: 11px; letter-spacing: 1px; color: var(--blue); }
+.draft-title { font-weight: 600; font-size: 16px; margin: 2px 0 4px; }
+.meta { font-size: 12px; color: var(--text2); }
+.warn { color: var(--red); }
+.frames img { max-width: 100%; border-radius: 8px; display: block; margin: 0 auto; }
+.muted { color: var(--text2); }
+.check { margin: 0 0 6px; font-size: 13px; }
+.check b { display: inline-block; width: 18px; }
+.ok { color: var(--green); } .bad { color: var(--red); } .meh { color: var(--orange); }
+.group { font-weight: 600; font-size: 14px; margin: 10px 0 6px; }
+
+/* footer + log */
+.drawer { display: flex; justify-content: space-between; }
+#log { background: var(--log); color: var(--logtext); font: 12px/1.45 ui-monospace, "JetBrains Mono", Menlo, monospace;
+       height: 190px; overflow-y: auto; border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; margin: 0; }
+
+/* dialogs */
+dialog { border: none; border-radius: 16px; background: var(--card); color: var(--text); padding: 22px 26px 20px;
+         width: min(600px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog h2 { margin: 0 0 4px; font-size: 22px; }
+.form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.option { border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 14px; cursor: pointer; }
+.option.on { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 7%, transparent); }
+.option b { display: block; }
+.option span { color: var(--text2); font-size: 13px; }
+label.field b { display: block; margin-bottom: 4px; }
+.dlg-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.err { color: var(--red); font-size: 13px; min-height: 1em; }
+#rec-script { max-height: 42vh; overflow-y: auto; padding: 14px 18px; margin-top: 12px; }
+#rec-script p { font-size: 16.5px; line-height: 1.55; margin: 0 0 12px; }
+.rec-center { text-align: center; margin: 14px 0 4px; }
+.rec { width: 72px; height: 72px; border-radius: 50%; border: 4px solid var(--line); background: var(--red); color: #fff; font-weight: 700; }
+.rec.on { border-radius: 18px; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--red) 25%, transparent); } }
+#rec-timer { font-size: 22px; font-weight: 600; margin-top: 6px; font-variant-numeric: tabular-nums; }
+video { width: 100%; max-height: 72vh; border-radius: 10px; background: #000; }
+#player { width: min(460px, calc(100vw - 32px)); }
+
+@media (max-width: 760px) {
+  body { flex-direction: column; }
+  aside { width: auto; max-height: 34vh; border-right: none; border-bottom: 1px solid var(--line); }
+  main { padding: 18px 16px; overflow: visible; }
+}
+</style>
+</head>
+<body>
+<aside>
+  <div class="side-head"><h2>Reels</h2><button class="round" id="new-btn" title="New Reel">+</button></div>
+  <ul id="reels"></ul>
+</aside>
+<main id="main"></main>
+
+<dialog id="new-dlg">
+  <h2>New Reel</h2>
+  <div class="subtitle">You'll pick a script and choose the voice in the next steps.</div>
+  <div class="form">
+    <div class="option on" data-src="topic"><b>From a topic</b><span>ReelForge researches it and writes 3 drafts for you to choose from.</span></div>
+    <div class="option" data-src="script"><b>From my own script</b><span>Use a script file you wrote.</span></div>
+    <label class="field" id="topic-row"><b>Topic</b><input type="text" id="topic" placeholder="e.g. Why AI image generators struggle with hands"></label>
+    <label class="field" id="script-row" hidden><b>Script file (path on this computer)</b><input type="text" id="script-file"></label>
+    <input type="text" id="handle" placeholder="Your @handle on the video (optional)">
+    <label><input type="checkbox" id="preview-gate" checked> Show me a quick preview before the full render</label>
+    <div class="err" id="new-err"></div>
+  </div>
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="create-btn">Create Reel</button></div>
+</dialog>
+
+<dialog id="rec-dlg">
+  <h2>Record Your Voice</h2>
+  <div class="subtitle">Read naturally — pauses are fine. Quiet room, phone-length from the mic.</div>
+  <div class="card" id="rec-script"></div>
+  <div class="rec-center">
+    <button class="rec" id="rec-btn">REC</button>
+    <div id="rec-timer">0:00</div>
+    <div class="muted" id="rec-status">Press REC when you're ready.</div>
+  </div>
+  <div class="muted" id="rec-check" style="white-space:pre-wrap"></div>
+  <audio id="rec-audio" controls hidden style="width:100%;margin-top:8px"></audio>
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="rec-use" disabled>Use This Take</button></div>
+</dialog>
+
+<dialog id="player"><video id="video" controls playsinline></video>
+  <div class="dlg-buttons"><button class="btn" data-close>Close</button></div></dialog>
+
+<input type="file" id="file-input" accept="audio/*,.wav,.flac,.m4a,.mp3,.ogg,.opus" hidden>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const STEPS = ["Script", "Voice", "Preview", "Final"];
+let current = localGet("reel") || null, tab = null, logSeq = 0, logOpen = false, lastDetail = "", defaults = {}, busy = false;
+
+function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function localSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+async function api(path, body, raw) {
+  const opt = body === undefined ? {} : {
+    method: "POST", headers: {"X-ReelForge": "1", ...(raw ? {} : {"Content-Type": "application/json"})},
+    body: raw ? body : JSON.stringify(body),
+  };
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+// ------------------------------------------------------------------ polling
+
+async function poll() {
+  try {
+    const s = await api(`/api/state?since=${logSeq}`);
+    defaults = s.defaults;
+    const wasBusy = busy;
+    busy = s.runner.busy;
+    renderList(s.jobs);
+    appendLog(s.runner);
+    if (wasBusy && !busy) {
+      if (s.runner.last_exit !== 0) showLog(true);
+      else if (pendingSelectNewest && s.jobs[0]) { current = s.jobs[0].id; localSet("reel", current); tab = null; }
+      pendingSelectNewest = false;
+    }
+    if (!current && s.jobs[0]) current = s.jobs[0].id;
+    if (current && !s.jobs.some(j => j.id === current)) current = s.jobs[0]?.id || null;
+    await renderDetail();
+  } catch (e) { console.error(e); }
+  setTimeout(poll, busy ? 1000 : 3000);
+}
+let pendingSelectNewest = false;
+
+function renderList(jobs) {
+  $("#reels").innerHTML = jobs.map(j => `
+    <li data-id="${esc(j.id)}" class="${j.id === current ? "sel" : ""}">
+      <div class="row-title">${esc(j.title)}</div>
+      <div class="row-sub"><span class="dot tone-${j.tone}"></span>${esc(j.status)} · ${esc(j.created)}</div>
+    </li>`).join("");
+  if (!jobs.length) {
+    $("#main").innerHTML = `<div class="empty"><h1>Make your first reel</h1>
+      <p class="subtitle">Pick a script, record your voice, and ReelForge builds the video around it.</p>
+      <button class="btn primary" onclick="openNew()">New Reel</button></div>`;
+    lastDetail = "";
+  }
+}
+$("#reels").addEventListener("click", e => {
+  const li = e.target.closest("li"); if (!li) return;
+  current = li.dataset.id; localSet("reel", current); tab = null; lastDetail = "";
+  document.querySelectorAll("#reels li").forEach(x => x.classList.toggle("sel", x === li));
+  renderDetail();
+});
+
+function appendLog(r) {
+  const log = $("#log");
+  if (r.lines.length) {
+    const atBottom = !log || log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+    logLines.push(...r.lines); if (logLines.length > 4000) logLines.splice(0, logLines.length - 4000);
+    if (log) { log.textContent = logLines.join("\n"); if (atBottom) log.scrollTop = log.scrollHeight; }
+  }
+  logSeq = r.seq;
+}
+let logLines = [];
+
+// ------------------------------------------------------------------ detail
+
+let job = null;
+async function renderDetail() {
+  if (!current) return;
+  try { job = await api(`/api/jobs/${encodeURIComponent(current)}`); } catch { return; }
+  const key = JSON.stringify(job);
+  if (key === lastDetail) return;   // nothing changed: keep scroll positions
+  lastDetail = key;
+  if (tab === null) tab = job.show_frames ? "frames" : "script";
+  const n = job.next;
+  const scrollY = $(".pane")?.scrollTop || 0;
+  $("#main").innerHTML = `
+    <div><h1>${esc(job.title)}</h1>
+      <div class="subtitle">${esc(job.status)} · created ${esc(job.created)} · ${esc(job.id)}</div></div>
+    <div class="stepper">${STEPS.map((s, i) => `
+      <div class="step ${i < job.step ? "done" : i === job.step ? "here" : ""} ${job.failed ? "failed" : ""}">
+        <div class="circle">${i < job.step ? "✓" : ""}</div>${s}</div>`).join("")}</div>
+    <div class="card next">
+      <h3>${esc(n.heading)}</h3><p>${esc(n.body)}</p>
+      ${n.working ? `<div class="bar ${n.percent == null ? "indeterminate" : ""}"><div style="width:${n.percent ?? 30}%"></div></div>` : ""}
+      <div class="actions">${n.actions.map((a, i) =>
+        `<button class="btn ${a.primary ? "primary" : ""}" data-act="${i}" ${busy && a.kind !== "stop" && a.kind !== "play" && a.kind !== "folder" && a.kind !== "log" ? "disabled" : ""}>${esc(a.label)}</button>`).join("")}</div>
+    </div>
+    <div class="card content">
+      <div class="seg">${["script", "frames", "checks"].map(t =>
+        `<button data-tab="${t}" class="${tab === t ? "on" : ""}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div>
+      <div class="pane">${pane()}</div>
+    </div>
+    <div class="drawer">
+      <button class="btn" id="log-btn">${logOpen ? "Hide activity" : "Show activity"}</button>
+      <button class="btn" id="folder-btn">Show in Folder</button>
+    </div>
+    <pre id="log" ${logOpen ? "" : "hidden"}></pre>`;
+  const log = $("#log"); log.textContent = logLines.join("\n"); log.scrollTop = log.scrollHeight;
+  const p = $(".pane"); if (p) p.scrollTop = scrollY;
+}
+
+function pane() {
+  if (tab === "frames") {
+    return job.media.frames ? `<div class="frames"><img src="${esc(job.media.frames)}" alt="Rendered frames"></div>`
+      : `<p class="muted">Frames appear here after the preview is rendered.</p>`;
+  }
+  if (tab === "checks") {
+    if (!job.checks.length) return `<p class="muted">Checks appear after the preview.</p>`;
+    const mark = ok => ok === true ? `<b class="ok">✓</b>` : ok === false ? `<b class="bad">✕</b>` : `<b class="meh">•</b>`;
+    return job.checks.map(g => `<div class="group">${esc(g.title)}</div>` +
+      g.items.map(i => `<p class="check">${mark(i.ok)}${esc(i.text)}</p>`).join("")).join("");
+  }
+  const s = job.script;
+  if (s.kind === "empty") return `<p class="muted">No script yet.</p>`;
+  if (s.kind === "drafts") return s.drafts.map(d => `
+    <div class="draft"><div class="draft-tag">DRAFT ${d.version}${d.angle ? " · " + esc(d.angle.toUpperCase()) : ""}</div>
+      <div class="draft-title">${esc(d.title)}</div><div class="sect">${esc(d.body)}</div>
+      <div class="meta">${d.words} words · facts matched in sources: ${d.claims_ok}/${d.claims}
+        ${d.no_sources ? `<span class="warn"> · written without sources - check every fact</span>` : ""}</div></div>`).join("");
+  return s.sections.map(x => `<p class="role">${esc(x.role.toUpperCase())}</p><p class="sect">${esc(x.text)}</p>`).join("") +
+    (s.claims ? `<p class="meta">Facts: ${s.claims_ok} of ${s.claims} matched in their sources (automatic check — review before posting).</p>` : "");
+}
+
+$("#main").addEventListener("click", async e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.tab) { tab = t.dataset.tab; lastDetail = ""; return renderDetail(); }
+  if (t.id === "log-btn") return showLog(!logOpen);
+  if (t.id === "folder-btn") return api(`/api/jobs/${encodeURIComponent(job.id)}/folder`, {});
+  if (t.dataset.act !== undefined) doAction(job.next.actions[+t.dataset.act]);
+});
+
+function showLog(on) { logOpen = on; lastDetail = ""; renderDetail(); }
+
+async function run(args) {
+  try { await api("/api/run", {args}); busy = true; lastDetail = ""; await renderDetail(); }
+  catch (e) { alert(e.message); }
+}
+
+async function doAction(a) {
+  switch (a.kind) {
+    case "run": if (!a.confirm || confirm(a.confirm)) await run(a.args); break;
+    case "stop": await api("/api/stop", {}); break;
+    case "play": play(job.media[a.video]); break;
+    case "folder": await api(`/api/jobs/${encodeURIComponent(job.id)}/folder`, {}); break;
+    case "log": showLog(true); break;
+    case "record": openRecorder(); break;
+    case "upload": $("#file-input").click(); break;
+  }
+}
+
+function play(src) {
+  if (!src) return alert("That video isn't there yet.");
+  const v = $("#video"); v.src = src; $("#player").showModal(); v.play().catch(() => {});
+}
+$("#player").addEventListener("close", () => { const v = $("#video"); v.pause(); v.removeAttribute("src"); v.load(); });
+
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
+
+// ------------------------------------------------------------------ upload an audio file
+
+$("#file-input").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const ext = (f.name.split(".").pop() || "wav").toLowerCase();
+  try {
+    const r = await api(`/api/recording/${ext}`, f, true);
+    await api(`/api/jobs/${encodeURIComponent(job.id)}/voice`, {name: r.name});
+    busy = true; lastDetail = ""; renderDetail();
+  } catch (err) { alert(err.message); }
+});
+
+// ------------------------------------------------------------------ new reel
+
+let source = "topic";
+function openNew() {
+  $("#script-file").value ||= defaults.script_file || "";
+  $("#handle").value ||= defaults.handle || "";
+  $("#new-err").textContent = "";
+  $("#new-dlg").showModal(); $("#topic").focus();
+}
+$("#new-btn").addEventListener("click", openNew);
+document.querySelectorAll(".option").forEach(o => o.addEventListener("click", () => {
+  source = o.dataset.src;
+  document.querySelectorAll(".option").forEach(x => x.classList.toggle("on", x === o));
+  $("#topic-row").hidden = source !== "topic"; $("#script-row").hidden = source !== "script";
+}));
+$("#create-btn").addEventListener("click", async () => {
+  try {
+    await api("/api/create", {source, topic: $("#topic").value, script_file: $("#script-file").value,
+      handle: $("#handle").value, preview_gate: $("#preview-gate").checked});
+    $("#new-dlg").close(); $("#topic").value = "";
+    busy = true; pendingSelectNewest = true; showLog(true);
+  } catch (e) { $("#new-err").textContent = e.message; }
+});
+$("#topic").addEventListener("keydown", e => { if (e.key === "Enter") $("#create-btn").click(); });
+
+// ------------------------------------------------------------------ recorder
+
+let media = null, chunks = [], started = 0, timer = null, take = null;
+function openRecorder() {
+  const s = job.script;
+  const text = s.kind === "script" ? s.sections.map(x => x.text) : s.kind === "drafts" ? s.drafts.map(d => d.body) : [];
+  $("#rec-script").innerHTML = text.map(t => `<p>${esc(t)}</p>`).join("");
+  $("#rec-status").textContent = "Press REC when you're ready.";
+  $("#rec-timer").textContent = "0:00"; $("#rec-check").textContent = "";
+  $("#rec-audio").hidden = true; $("#rec-use").disabled = true; take = null;
+  $("#rec-dlg").showModal();
+}
+$("#rec-btn").addEventListener("click", async () => {
+  if (media && media.state === "recording") return media.stop();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: false, noiseSuppression: false, autoGainControl: false}});
+    chunks = []; media = new MediaRecorder(stream);
+    media.ondataavailable = e => e.data.size && chunks.push(e.data);
+    media.onstop = finishTake;
+    media.start(); started = Date.now();
+    timer = setInterval(() => { const s = Math.floor((Date.now() - started) / 1000);
+      $("#rec-timer").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      if (s >= 180) media.stop(); }, 200);
+    $("#rec-btn").textContent = "STOP"; $("#rec-btn").classList.add("on");
+    $("#rec-status").textContent = "Recording — press STOP when you finish.";
+    $("#rec-use").disabled = true; $("#rec-audio").hidden = true; $("#rec-check").textContent = "";
+  } catch (e) { $("#rec-status").textContent = "Couldn't use the microphone: " + e.message; }
+});
+async function finishTake() {
+  clearInterval(timer); media.stream.getTracks().forEach(t => t.stop());
+  $("#rec-btn").textContent = "REC"; $("#rec-btn").classList.remove("on");
+  const type = media.mimeType || "audio/webm";
+  const blob = new Blob(chunks, {type});
+  $("#rec-audio").src = URL.createObjectURL(blob); $("#rec-audio").hidden = false;
+  $("#rec-status").textContent = "Checking the take…";
+  try {
+    const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : "webm";
+    const r = await api(`/api/recording/${ext}`, blob, true);
+    const c = r.check; take = r.name;
+    $("#rec-status").textContent = c.ok ? "Sounds good. Listen to it, then use this take — or record again."
+      : "This take can't be used — see below and record again.";
+    $("#rec-check").textContent = [`${Math.round(c.duration)} s · background noise ${c.quiet ? "low" : "noticeable"}`,
+      ...c.errors.map(x => "✕ " + x), ...c.warnings.map(x => "• " + x)].join("\n");
+    $("#rec-use").disabled = !c.ok;
+  } catch (e) { $("#rec-status").textContent = "Recording failed: " + e.message; }
+}
+$("#rec-dlg").addEventListener("close", () => { if (media && media.state === "recording") { media.onstop = null; media.stop(); clearInterval(timer); media.stream.getTracks().forEach(t => t.stop()); $("#rec-btn").textContent = "REC"; $("#rec-btn").classList.remove("on"); } });
+$("#rec-use").addEventListener("click", async () => {
+  try {
+    await api(`/api/jobs/${encodeURIComponent(job.id)}/voice`, {name: take});
+    $("#rec-dlg").close(); busy = true; lastDetail = ""; renderDetail();
+  } catch (e) { alert(e.message); }
+});
+
+poll();
+</script>
+</body>
+</html>

@@ -17,15 +17,13 @@ dependencies = [
 
 [project.scripts]
 reelforge = "reelforge.main:main"
-reelforge-gui = "reelforge.gui.app:main"
+reelforge-web = "reelforge.web.server:main"
 
 [project.optional-dependencies]
 # Local Whisper transcription (CPU, int8). Model weights are downloaded on first use.
 transcribe = ["faster-whisper>=1.1"]
 # Local TTS + reference-audio voice cloning (Kyutai Pocket TTS, CPU).
 voice = ["pocket-tts>=4.0", "torch>=2.5"]
-# Minimal desktop GUI (PyQt5 wheels bundle Qt; uses the system X/XCB libraries).
-gui = ["PyQt5>=5.15"]
 
 [dependency-groups]
 dev = ["pytest>=8.2", "ruff>=0.6", "mypy>=1.11"]
@@ -65,7 +63,3 @@ python_version = "3.12"
 ignore_missing_imports = true
 warn_unused_ignores = true
 
-[[tool.mypy.overrides]]
-# PyQt5's bundled stubs omit many runtime enum attributes (Qt.UserRole, QProcess.MergedChannels, ...)
-module = "reelforge.gui.*"
-disable_error_code = ["attr-defined"]

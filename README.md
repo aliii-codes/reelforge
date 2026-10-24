@@ -48,20 +48,19 @@ Models download on first use: Whisper `base.en` (148 MB, MIT) and Pocket TTS Eng
   for the Wikipedia User-Agent.
 - `REELFORGE_HANDLE=@you` to show your handle on videos and the cover.
 
-## Desktop GUI (minimal)
+## Web UI
 
 ```bash
-uv sync --extra transcribe --extra voice --extra gui     # PyQt5 (~200 MB in the venv, no system packages)
-python -m reelforge.gui.app                              # or: reelforge-gui
+python -m reelforge.web          # or: reelforge-web   → opens http://127.0.0.1:8765/
 ```
 
-One window: reels on the left; the selected reel's script, rendered frames and checks on the
-right with only the buttons that make sense for its state (Record voice, Use audio file,
-Approve script, Play preview, Approve → full render, Play video, Approve video, Resume,
-Folder); a live log at the bottom. **New reel** picks a script file and voice (record after
-creating, an existing recording, or the labelled stock voice). Recording uses your default
-mic and checks the take before you use it. Every button runs the same CLI command you could
-type, so jobs started in the GUI can be inspected or resumed from the terminal and vice versa.
+No extra dependencies (standard library server, one HTML page). Reels on the left; the selected
+reel's script, rendered frames and checks on the right, with only the buttons that make sense
+for its state (pick a draft, record voice, use an audio file, AI voice, approve, render, resume).
+Previews and final videos play in the page; voice is recorded in the browser and checked before
+you use it. Every button runs the same CLI command you could type, so jobs started in the web UI
+can be inspected or resumed from the terminal and vice versa. One step runs at a time; the
+activity drawer shows the live log. It listens on 127.0.0.1 only.
 
 ## Run it
 
@@ -244,4 +243,4 @@ Job `20261022-0852-how-a-laptop-runs-a-7-billion-pa-44d1` from `examples/sample_
 | Groq / Cohere / Ollama script generation | Implemented, **mock-tested only** (no keys configured) |
 | Wikipedia / Tavily search | Implemented; Tavily mock-only; Wikipedia article fetching works live, **Wikipedia API search got HTTP 403 (robot policy) without `REELFORGE_CONTACT`** |
 | Cloning **your** voice | Implemented + unit-tested; **pending your recordings and HF gate acceptance** |
-| PyQt5 GUI | Not started (future) |
+| Local web UI (`python -m reelforge.web`) | Working |
