@@ -121,10 +121,13 @@ cta (headline + subtext as the share prompt).
 Icons: chip, brain, phone, bolt, book, chart, bulb, warning, share, layers, globe, scale.
 Expressions: neutral, surprised, thoughtful, happy, skeptical (match the line's emotion).
 Only use numbers that literally appear in the section text.
+If consecutive sections walk through the steps of one process, give each a short "step" name
+(1-2 words, max 16 chars, e.g. "data", "guess", "adjust"); otherwise leave "step" empty.
+"tag" is an optional 2-4 word lowercase header for the section, may end with one emoji.
 
 Return JSON: {{"scenes": [{{"section_index": int, "scene": str, "headline": str, "subtext": str,
  "items": [str], "left": str, "right": str, "stat_value": number|null, "stat_prefix": str,
- "stat_suffix": str, "stat_label": str, "icon": str, "expression": str}}]}}"""
+ "stat_suffix": str, "stat_label": str, "icon": str, "expression": str, "step": str, "tag": str}}]}}"""
 
 
 def repair_prompt(original_user: str, bad_output: str, error: str) -> str:

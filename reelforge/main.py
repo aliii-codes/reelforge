@@ -157,6 +157,9 @@ def create(
         bool, typer.Option("--no-preview-gate", help="Render the final video without stopping at the preview.")
     ] = False,
     pace: Annotated[float, typer.Option(min=1.8, max=6.0, help="Target seconds between visual changes.")] = 3.2,
+    style: Annotated[
+        str, typer.Option(help="explainer (light canvas, presenter, diagrams) | creator (dark kinetic style)")
+    ] = "explainer",
 ) -> None:
     """Create a job from a topic (LLM + research) or a script file (works offline)."""
     if bool(topic) == bool(script_file):
@@ -191,6 +194,7 @@ def create(
         caption_source=caption_source,  # type: ignore[arg-type]  # validated by pydantic
         preview_gate=not no_preview_gate,
         edit_pace_s=pace,
+        visual_style=style,  # type: ignore[arg-type]  # validated by pydantic
         drafts=drafts,
     )
     p = _pipeline()

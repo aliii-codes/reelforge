@@ -238,6 +238,7 @@ Job `20261022-0852-how-a-laptop-runs-a-7-billion-pa-44d1` from `examples/sample_
 | Resume after failure (real crash in the sound generator, Node not on PATH, session kills) | Working (real runs + tests) |
 | Word-level captions from Whisper aligned to script spelling | Working; 3/161 words interpolated in demo (flagged) |
 | Original SVG avatar, loudness mouth + viseme guesses, expressions per scene, blinks | Working (heuristic lip-sync, not phoneme-accurate) |
+| Explainer visual style (default for new jobs, `--style explainer`): dotted canvas, outlined cards, presenter with poses + speech-bubble captions, per-beat diagrams chosen from the narration (network / knobs / data stream / steps / chain / stat / scale / compare / code), chapter tabs from `step:` hints | Working, demonstrated end to end ("How AI models learn from data"); see [docs/editing-style.md](docs/editing-style.md). `--style creator` keeps the original dark look |
 | Cover, caption, 5 hashtags, sources/claims, metadata, contact sheet | Working |
 | Claim checking | Lexical match against pages actually fetched; labelled, needs human review |
 | Groq / Cohere / Ollama script generation | Implemented, **mock-tested only** (no keys configured) |

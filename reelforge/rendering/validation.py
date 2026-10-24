@@ -222,8 +222,41 @@ def audio_onset_and_end(path: Path, hop_s: float = 0.01) -> tuple[float | None, 
     return round(idx[0] * hop_s, 3), round((idx[-1] + 1) * hop_s, 3)
 
 
-def caption_sync_report(path: Path, manifest, tolerance_s: float = 0.3) -> dict:
-    """Do captions line up with the audio actually in the file?"""
+def narration_lag(path: Path, narration: Path, hop_s: float = 0.01, max_lag_s: float = 3.0) -> float | None:
+    """Where the narration sits inside `path`'s (mixed) audio, in seconds (+ = later), found by
+    cross-correlating loudness envelopes. Music and SFX don't correlate with the voice, so a bed
+    that starts before the first word can't be mistaken for it."""
+    import numpy as np
+
+    from reelforge.voice.quality import frame_rms, load_audio
+
+    sr = 16000
+    a = frame_rms(load_audio(path, sr), sr, hop_s)
+    b = frame_rms(load_audio(narration, sr), sr, hop_s)
+    n = min(len(a), len(b), int(20 / hop_s))  # the first 20 s are plenty
+    if n < int(2 / hop_s):
+        return None
+    a = np.log10(np.maximum(a[: n + int(max_lag_s / hop_s)], 1e-6))
+    b = np.log10(np.maximum(b[:n], 1e-6))
+    a = a - a.mean()
+    b = b - b.mean()
+    lags = range(-int(1 / hop_s), int(max_lag_s / hop_s) + 1)
+    best, best_lag = -np.inf, 0
+    for lag in lags:
+        x = a[max(0, lag) : max(0, lag) + n]
+        y = b[max(0, -lag) :]
+        m = min(len(x), len(y))
+        if m < n // 2:
+            continue
+        score = float(np.dot(x[:m], y[:m]) / m)
+        if score > best:
+            best, best_lag = score, lag
+    return round(best_lag * hop_s, 3)
+
+
+def caption_sync_report(path: Path, manifest, tolerance_s: float = 0.3, narration: Path | None = None) -> dict:
+    """Do captions line up with the audio actually in the file? With `narration` (the voice stem),
+    the voice onset is located inside the file by correlation; otherwise by loudness alone."""
     errors: list[str] = []
     warnings: list[str] = []
     fps = manifest.fps
@@ -234,6 +267,12 @@ def caption_sync_report(path: Path, manifest, tolerance_s: float = 0.3) -> dict:
     last_word = groups[-1].words[-1].end_frame / fps
     video_end = manifest.duration_frames / fps
     onset, end = audio_onset_and_end(path)
+    if narration is not None and narration.exists():
+        v_onset, v_end = audio_onset_and_end(narration)
+        lag = narration_lag(path, narration)
+        if v_onset is not None and lag is not None:
+            onset = round(v_onset + lag, 3)
+            end = round(v_end + lag, 3) if v_end is not None else end
     out: dict = {
         "first_caption_s": round(first_word, 3),
         "last_caption_end_s": round(last_word, 3),

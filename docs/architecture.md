@@ -17,6 +17,9 @@ script file ──► parser (sections, visual hints, [source]/[claim], # say: p
                     heuristics; diagram/demo hold and reveal steps on beats) + word-synced cues
                     (count-ups, steps, reveal words, emphasis punch) + layouts (center/focus) +
                     avatar gestures (brows on emphasis, nods at sentence ends) + SFX cues
+                    → explainer style: per-beat visual chosen from the narration's meaning,
+                      header labels, chapter tabs, presenter poses, phrase captions, sparse SFX
+                      (visuals/explainer.py)
                     → scene_manifest.json v2 (validated)
  previewing         360x640 Remotion render + real mix → preview checks + preview contact sheet
  awaiting_preview_approval ──► approve-preview
@@ -53,8 +56,10 @@ passed as `--props`; the job's `work/public/` is passed as `--public-dir` (holds
 so mixing/ducking/loudness stay in Python. You can hand-edit `scene_manifest.json` and run
 `rework JOB --stage rendering` (it is re-validated first).
 
-Layout on the 1080×1920 canvas: scene panel y 210–910; avatar centred at y≈1105; captions at
-y≈1430; bottom 380 px and top 200 px kept clear for platform UI.
+Layout on the 1080×1920 canvas (creator style): scene panel y 210–910; avatar centred at
+y≈1105; captions at y≈1430. Explainer style: see docs/editing-style.md. Both keep the bottom
+380 px and top 200 px clear for platform UI. `manifest.style` selects the renderer path
+(`renderer/src/explainer/` vs `renderer/src/components/`).
 
 ## Why these choices
 

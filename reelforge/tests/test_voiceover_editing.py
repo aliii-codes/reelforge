@@ -257,3 +257,32 @@ def test_exact_length_mux_and_sync_checks(tmp_path: Path):
     late = caption_sync_report(out, manifest(45))
     assert any("narration onset" in e for e in late["errors"])
     assert even_dim(1080 / 3) == 360 and even_dim(1920 / 3) == 640
+
+
+def test_caption_sync_ignores_music_before_the_first_word(tmp_path: Path):
+    """A bed that starts before a late first word must not count as the narration onset."""
+    from reelforge.visuals.scene_manifest import AvatarTrack, CaptionGroupF, CaptionWordF, Scene, SceneManifest
+
+    rng = np.random.default_rng(1)
+    dur, frames = 6.0, 180
+    t = np.arange(int(dur * SR)) / SR
+    voice = np.zeros_like(t, dtype=np.float32)
+    on = t >= 0.8  # syllable-like bursts from 0.8 s
+    voice[on] = (0.3 * np.sin(2 * np.pi * 180 * t[on]) * (np.sin(2 * np.pi * 3.1 * t[on]) > -0.2)).astype(np.float32)
+    bed = (0.06 * rng.standard_normal(len(t))).astype(np.float32)  # ~-14 dB under the voice, from 0 s
+    sf.write(tmp_path / "voice.wav", voice, SR)
+    sf.write(tmp_path / "mix.wav", voice + bed, SR)
+
+    def manifest(first_word_frame: int) -> SceneManifest:
+        w = CaptionWordF(text="hi", start_frame=first_word_frame, end_frame=first_word_frame + 20)
+        return SceneManifest(
+            job_id="t", title="t", duration_frames=frames,
+            scenes=[Scene(id="s1", type="hook", start_frame=0, end_frame=frames, headline="x")],
+            caption_groups=[CaptionGroupF(start_frame=w.start_frame, end_frame=w.end_frame, words=[w])],
+            avatar=AvatarTrack(mouth_open=[0.0] * frames, visemes=["rest"] * frames, blink_frames=[]),
+        )  # fmt: skip
+
+    on_time = caption_sync_report(tmp_path / "mix.wav", manifest(24), narration=tmp_path / "voice.wav")
+    assert not on_time["errors"] and abs(on_time["first_word_offset_s"]) < 0.1
+    early = caption_sync_report(tmp_path / "mix.wav", manifest(3), narration=tmp_path / "voice.wav")
+    assert any("narration onset" in e for e in early["errors"])

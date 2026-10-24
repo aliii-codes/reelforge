@@ -115,6 +115,8 @@ class SceneHintOut(BaseModel):
     stat_label: str = ""
     icon: str = ""
     expression: Expression = "neutral"
+    step: str = ""  # chapter name when the section is one step of a process (explainer tabs)
+    tag: str = ""  # short header label
 
 
 class ScenePlanOut(BaseModel):

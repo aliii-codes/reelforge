@@ -4,6 +4,7 @@ import { Avatar, type AvatarPlacement } from "./components/Avatar";
 import { Background } from "./components/Background";
 import { Captions } from "./components/Captions";
 import { SceneView } from "./components/Scenes";
+import { ExplainerReel } from "./explainer/ExplainerReel";
 import type { AvatarMode, SceneManifest } from "./types";
 
 // Where the avatar sits for each staging mode. "hidden" parks it below the frame, so switching
@@ -54,7 +55,9 @@ const Handle: React.FC<{ text: string; font: string }> = ({ text, font }) =>
     </div>
   ) : null;
 
-export const Reel: React.FC<SceneManifest> = (m) => {
+export const Reel: React.FC<SceneManifest> = (m) => (m.style === "explainer" ? <ExplainerReel {...m} /> : <CreatorReel {...m} />);
+
+const CreatorReel: React.FC<SceneManifest> = (m) => {
   const frame = useCurrentFrame();
   const sceneIdx = m.scenes.findIndex((s) => frame >= s.start_frame && frame < s.end_frame);
   const scene = sceneIdx >= 0 ? m.scenes[sceneIdx] : m.scenes[m.scenes.length - 1];

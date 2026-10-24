@@ -662,6 +662,7 @@ class Pipeline:
             plan=self._scene_plan_from_llm(job, sv.script),
             pace=cfg.edit_pace_s,
             evidence=self._evidence_capturer(job),
+            style=cfg.visual_style,
         )
         errs = validate_manifest(manifest)
         if errs:
@@ -824,7 +825,9 @@ class Pipeline:
             return {}
         return music_balance(job.output_dir / "narration.wav", stem)
 
-    def _validate_output(self, video: Path, manifest: SceneManifest, cfg: JobConfig, scale: float = 1.0) -> dict:
+    def _validate_output(
+        self, video: Path, manifest: SceneManifest, cfg: JobConfig, narration: Path, scale: float = 1.0
+    ) -> dict:
         """Container/codec/size/fps/audio/decode/black/silence + render completion + caption sync."""
         w, h = even_dim(manifest.width * scale), even_dim(manifest.height * scale)
         report = validate_video(
@@ -836,7 +839,7 @@ class Pipeline:
             height=h,
         )
         completion = check_render_completion(video, manifest.duration_frames)
-        sync = caption_sync_report(video, manifest)
+        sync = caption_sync_report(video, manifest, narration=narration)
         report["render_completion"] = completion
         report["caption_timing"] = sync
         report["errors"] += completion["errors"] + sync["errors"]
@@ -876,7 +879,9 @@ class Pipeline:
                 video=silent, audio=mix, output=out / "preview.mp4", duration=manifest.duration_frames / manifest.fps
             )
         )
-        report = self._validate_output(out / "preview.mp4", manifest, cfg, scale=scale)
+        report = self._validate_output(
+            out / "preview.mp4", manifest, cfg, job.output_dir / "narration.wav", scale=scale
+        )
         report["music"] = self._music_report(job)
         report["warnings"] += report["music"].get("warnings", [])
         make_contact_sheet(out / "preview.mp4", manifest, out / "preview_contact_sheet.jpg")
@@ -973,7 +978,7 @@ class Pipeline:
         timings["audio_mix_and_mux"] = round(time.time() - t0, 1)
 
         t0 = time.time()
-        video_report = self._validate_output(out / "final_reel.mp4", manifest, cfg)
+        video_report = self._validate_output(out / "final_reel.mp4", manifest, cfg, job.output_dir / "narration.wav")
         video_report["music"] = self._music_report(job)
         video_report["warnings"] += video_report["music"].get("warnings", [])
         timings["validation"] = round(time.time() - t0, 1)

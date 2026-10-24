@@ -14,7 +14,7 @@ from pathlib import Path
 from reelforge.captions.alignment import CaptionTrack, CaptionWord
 from reelforge.providers.base import ScenePlanOut
 from reelforge.schemas import ClaimStatus, ResearchBundle, Script, ScriptSection, VisualHint
-from reelforge.visuals import director
+from reelforge.visuals import director, explainer
 from reelforge.visuals.avatar import blink_schedule, mouth_envelope, visemes
 from reelforge.visuals.beats import emphasis_word_indices, plan_segments
 from reelforge.visuals.scene_manifest import (
@@ -243,6 +243,8 @@ def llm_hints(plan: ScenePlanOut | None) -> dict[int, VisualHint]:
             stat_label=s.stat_label,
             icon=s.icon if s.icon in ICONS else "",
             expression=s.expression,
+            step=s.step[:16],
+            tag=s.tag[:40],
         )
     return out
 
@@ -688,16 +690,27 @@ def build_manifest(
     plan: ScenePlanOut | None = None,
     pace: float = 3.2,
     evidence: EvidenceFn | None = None,
+    style: str = "creator",
 ) -> SceneManifest:
     """Everything is timed from the final narration: captions and cuts from its word timestamps,
     the avatar's mouth from its loudness, SFX from the resulting cuts."""
     duration_frames = int(math.ceil((audio_duration + TAIL_S) * FPS))
     scenes = plan_scenes(script, track, research, duration_frames, plan, pace, evidence)
-    sfx, music = director.sound_cues([s.model_dump() | {"cues": s.cues} for s in scenes])
     mouth = mouth_envelope(narration, FPS, duration_frames)
     emph = emphasis_word_indices(track.words)
     em_frames, nod_frames = avatar_beats(track.words, emph, duration_frames)
+    chapters: list[str] = []
+    caption_track, caption_emph = track, set(emph)
+    if style == "explainer":
+        scenes, chapters = explainer.stylize(script, track, scenes)
+        sfx, music = explainer.sound_cues(scenes)
+        caption_track = explainer.bubble_track(track)
+        caption_emph = explainer.keyword_indices(caption_track, scenes, chapters, set(emph))
+    else:
+        sfx, music = director.sound_cues([s.model_dump() | {"cues": s.cues} for s in scenes])
     return SceneManifest(
+        style=style,  # type: ignore[arg-type]  # validated by pydantic
+        chapters=chapters,
         job_id=job_id,
         title=script.title,
         cover_title=cover_title(script, scenes),
@@ -705,7 +718,7 @@ def build_manifest(
         handle=handle or script.handle,
         audio_src="narration.wav",
         scenes=scenes,
-        caption_groups=caption_groups_to_frames(track, duration_frames, set(emph)),
+        caption_groups=caption_groups_to_frames(caption_track, duration_frames, caption_emph),
         avatar=AvatarTrack(
             mouth_open=mouth,
             visemes=visemes(track.words, mouth, FPS),  # type: ignore[arg-type]

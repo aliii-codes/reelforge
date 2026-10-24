@@ -59,6 +59,9 @@ _HINT_KEYS = {
     "quote": "quote",
     "top": "top",
     "bottom": "bottom",
+    "tag": "tag",
+    "visual": "visual",
+    "step": "step",
 }
 
 

@@ -3,7 +3,58 @@
 How a ReelForge video is cut, and how to direct it from a script. The goal: every cut, animation,
 caption and sound has a reason that comes from the narration.
 
-## Visual identity
+Two styles share the same timing, captions, sound and validation; pick one per job with
+`create --style explainer|creator` (default `explainer`; jobs created before it existed render
+in `creator`).
+
+## Explainer style (default)
+
+A light, faceless motion-graphics explainer: dotted grey canvas, thick dark outlines with hard
+offset shadows (no blur), orange / purple / green / pink / teal palette, Baloo 2 (bold rounded)
+for type and Caveat for handwritten notes, and an original presenter ("Forge": purple hoodie,
+orange neck headphones) whose speech bubble *is* the caption.
+
+**Frame layout (1080×1920):** header pill y≈222 · chapter tabs y≈312 (only if the script has
+`step:` hints) · stage y≈320–1160 · presenter bottom-left (x 25–325, y 1185–1545) with the
+bubble to its right (x 350–940, clear of the Reels/Shorts buttons). Hook and CTA put the presenter
+in the centre, larger, with the bubble below it.
+
+**What each beat shows** is decided in `reelforge/visuals/explainer.py` from what is being said:
+
+| The narration… | Visual |
+|---|---|
+| names a neural network / layers / connections | `network`: nodes appear layer by layer, edges draw in, then a signal travels forward |
+| talks about training / adjusting / nudging / tuning | `dials`: a grid of knobs that start turning; spoken key terms give them a nudge |
+| talks about data, text, the internet, examples | `datastream`: sources slide into the model box |
+| walks through a process (`items:`) | `steps` (long items, vertical with arrows) or `chain` (short tokens, horizontal) |
+| says a number | `stat`: counts up on the spoken number (+ dot grid for billions / x-times) |
+| compares two numbers / two things / an analogy | `scale` (areas follow the real ratio) / `compare` (A vs B, or ≈) |
+| the twist | `twist`: pink "but…" sticker + warning card, riser and music drop |
+| code / a recorded terminal / a cited page | `code` (mockup labelled "illustration") / `terminal` (real cast) / `evidence` (real screenshot) |
+| anything else | `keyword` (phrase revealed word-by-word as spoken) or an icon `card`, alternating — never three alike in a row |
+
+Consecutive beats of one section that keep the same diagram (`dials`, `network`, `datastream`)
+don't re-animate: the diagram stays and only labels change. Otherwise, inside a section the
+canvas "scrolls" (old card lifts away, new one rises); a new section slides sideways and the
+header pill flips to its new label.
+
+**Captions:** phrase-level (≤5 words / 30 chars; sentence ends and pauses always break, lone
+trailing words are merged back), upcoming words light grey, spoken words dark, at most one key
+term per phrase turned into a purple pill (numbers first, then the beat's key terms / chapter
+names).
+
+**Presenter:** expressions from the section role, poses per visual (`point` at diagrams, `think`
+on comparisons, `shrug` on the twist, `wave` on hook/CTA). Gestures relax after ~2 s, arms that
+are down hang behind the torso, mouth/brows/nods/blinks come from the narration audio.
+
+**Sound:** a soft whoosh only when the section changes, a tick when a step lands (max two per
+beat), a pop when a number lands, riser + music drop into the twist; nothing within 0.6 s of
+another cue.
+
+**Script hints** (all optional): `step: data` (chapter tab name, ≤16 chars), `tag: aur twist 😮`
+(header pill text), `visual: dials` (force a treatment for the section's first beat).
+
+## Creator style: visual identity
 
 - **Palette:** ink navy `#1B1446 → #07061A`, mint accent `#4DF0C8` (key terms, active caption
   word, the "after" state), pink accent `#FF6B9A` (markers, the twist, ratios), white type.
