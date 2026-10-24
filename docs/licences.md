@@ -22,6 +22,8 @@ source; treat those as a risk to resolve before commercial use. This is not lega
 |---|---|---|---|---|
 | `Systran/faster-whisper-base.en` | 148 MB | MIT | `~/.cache/huggingface/hub` | word-timed transcription |
 | `kyutai/pocket-tts-without-voice-cloning` English weights + tokenizer | ~220 MB | CC-BY-4.0 (attribution: Kyutai) | `~/.cache/huggingface/hub` | stock-voice narration (demo) |
+| Baloo 2 (variable TTF) | 683 KB | SIL OFL 1.1 (`renderer/src/fonts/OFL-Baloo2.txt`) | `renderer/src/fonts/` (bundled into the render) | explainer-style type; from github.com/google/fonts, 2026-10-23 |
+| Caveat (variable TTF) | 404 KB | SIL OFL 1.1 (`renderer/src/fonts/OFL-Caveat.txt`) | `renderer/src/fonts/` | handwritten annotations |
 | Stock voice `marius` embedding | ~6 MB | voice recording CC0 (Kyutai voice donations); embedding in CC-BY-4.0 repo | HF cache | demo narration |
 | `kyutai/pocket-tts` (gated, cloning) | ~220 MB | CC-BY-4.0 + gate conditions (no cloning without consent) | not downloaded yet | cloning your voice |
 

@@ -74,6 +74,13 @@ class VisualHint(StrictModel):
     # Meme beat: top/bottom impact text over an avatar reaction.
     top: str = ""
     bottom: str = ""
+    # Explainer style: header pill text, a forced visual treatment, and a chapter ("step") name.
+    tag: str = ""
+    visual: str = ""
+    step: str = ""
+
+
+_LATER_HINT_KEYS = ("tag", "visual", "step")
 
 
 class ScriptSection(StrictModel):
@@ -203,10 +210,15 @@ class ScriptVersion(StrictModel):
     warnings: list[str] = Field(default_factory=list)
 
     def content_hash(self) -> str:
-        payload = json.dumps(
-            {"script": self.script.model_dump(mode="json"), "research": self.research.model_dump(mode="json")},
-            sort_keys=True,
-        )
+        script = self.script.model_dump(mode="json")
+        # Hint keys added later are left out while empty, so scripts approved before they existed
+        # keep their hash.
+        for sec in script["sections"]:
+            for hint in [sec["visual"], *sec["beats"]]:
+                for k in _LATER_HINT_KEYS:
+                    if not hint.get(k):
+                        hint.pop(k, None)
+        payload = json.dumps({"script": script, "research": self.research.model_dump(mode="json")}, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -271,7 +283,8 @@ class TakeReport(StrictModel):
 class JobConfig(StrictModel):
     """Per-job choices, frozen into project_config.json. Never contains secrets."""
 
-    voice_mode: Literal["clone", "stock", "file"] = "stock"
+    # "ask": the user decides after picking a script (record / their file / AI voice, confirmed)
+    voice_mode: Literal["clone", "stock", "file", "ask"] = "stock"
     voice_profile: str = "default"
     stock_voice: str = "marius"
     narration_file: str | None = None
@@ -285,6 +298,8 @@ class JobConfig(StrictModel):
     sfx: bool = True
     sfx_volume_db: float = Field(default=-22.0, le=-10.0)
     llm_provider: str = "auto"
+    drafts: int = Field(default=3, ge=1, le=3)  # script drafts to generate from a topic
+    picked_version: int | None = None  # the draft the user chose (approved once a voice is set)
     research: bool = True
     fetch_sources: bool = True
     handle: str = ""
@@ -304,3 +319,6 @@ class JobConfig(StrictModel):
     preview_scale: float = Field(default=1 / 3, ge=0.2, le=0.75)  # 360x640
     # Target seconds between visual changes (audio-driven editing pace).
     edit_pace_s: float = Field(default=3.2, ge=1.8, le=6.0)
+    # "explainer": light dotted canvas, outlined cards, presenter + speech-bubble captions.
+    # "creator": the original dark kinetic style.
+    visual_style: Literal["explainer", "creator"] = "explainer"

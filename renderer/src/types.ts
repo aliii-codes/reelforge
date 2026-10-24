@@ -109,7 +109,20 @@ export interface Scene {
   meta: Record<string, unknown>;
   cues: Cue[];
   lines: string[];
+  // Explainer style (optional so older manifests still type-check).
+  visual?: ExplainerVisual | "";
+  label?: string;
+  label_color?: PillColor;
+  emoji?: string;
+  chapter?: number | null;
+  pose?: Pose;
 }
+
+export type Pose = "idle" | "point" | "think" | "wave" | "shrug";
+export type PillColor = "orange" | "purple" | "pink" | "green";
+export type ExplainerVisual =
+  | "hook" | "card" | "keyword" | "steps" | "chain" | "network" | "dials" | "datastream" | "checklist"
+  | "stat" | "scale" | "compare" | "twist" | "code" | "terminal" | "evidence" | "bars" | "cta" | "reaction";
 
 export interface CaptionWord {
   text: string;
@@ -156,6 +169,8 @@ export interface AvatarTrack {
 
 export type SceneManifest = {
   schema_version: number;
+  style?: "creator" | "explainer";
+  chapters?: string[];
   job_id: string;
   title: string;
   cover_title: string;

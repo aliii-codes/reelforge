@@ -1,0 +1,51 @@
+# title: How AI models learn from data
+# topic: How neural networks are trained: data, guesses, and tiny weight updates
+# caption: AI models aren't programmed with answers. They guess, measure how wrong they were, and nudge billions of weights. Repeat. That's training.
+# hashtags: #AI #MachineLearning #NeuralNetworks #TechExplained #LearnAI
+# say: GPT-3 = G P T three
+
+[hook]
+An AI model starts out knowing absolutely nothing. So how does it end up writing code and answering questions?
+> headline: It starts out knowing nothing | kicker: How does AI learn?
+> expression: surprised
+
+[explain]
+A model is a neural network: layers of simple math units, connected by billions of numbers called weights.
+> scene: diagram | headline: A neural network | items: Input ; Layer 1 ; Layer 2 ; Output
+
+[explain]
+First, it needs data. Training feeds it huge amounts of text, images, and examples from the internet.
+> step: data
+
+[explain]
+Second, it guesses. For each example, the model predicts the answer, like the next word in a sentence.
+> step: guess | scene: diagram | headline: Predict the next word | items: The cat ; sat on the ; mat
+
+[explain]
+Third, it adjusts. It measures how wrong the guess was, then nudges every weight a tiny bit to be less wrong.
+> step: adjust
+
+[number]
+GPT-3 has one hundred seventy-five billion weights, and every single one was tuned this way.
+> scene: stat | value: 175 | suffix: B | label: weights in GPT-3 | headline: Tuned one nudge at a time
+
+[analogy]
+It's like learning darts blindfolded, with a friend shouting "a bit to the left." Every throw lands a little closer.
+> left: Darts: throw, miss, aim again | right: AI: guess, measure error, nudge weights
+
+[twist]
+But here's the catch. It only learns the patterns in its data. Feed it biased or wrong examples, and it learns those too.
+> headline: It learns your data's mistakes too | kicker: BUT…
+
+[payoff]
+So an AI model doesn't memorize a textbook. It learns patterns, one tiny nudge at a time.
+
+[cta]
+Follow for more AI, explained simply.
+> headline: Data in, patterns out | kicker: Follow for more AI, simply explained
+
+[claim] A neural network is made of connected units (artificial neurons) arranged in layers, and each connection has a weight. | https://en.wikipedia.org/wiki/Neural_network_(machine_learning)
+[claim] Training adjusts the weights to reduce the error between the network's output and the target (backpropagation with gradient descent). | https://en.wikipedia.org/wiki/Backpropagation
+[claim] Large language models are trained on large amounts of text to predict the next token. | https://en.wikipedia.org/wiki/Large_language_model
+[claim] GPT-3 has 175 billion parameters. | https://en.wikipedia.org/wiki/GPT-3
+[claim] Machine-learning systems can reproduce biases present in their training data. | https://en.wikipedia.org/wiki/Algorithmic_bias

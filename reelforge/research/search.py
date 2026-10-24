@@ -57,40 +57,60 @@ class WikipediaSearch(SearchProvider):
         titles = [h["title"] for h in r.json().get("query", {}).get("search", [])]
         if not titles:
             return []
-        r2 = self._client.get(
-            self.API,
-            params={
-                "action": "query",
-                "prop": "extracts|info",
-                "inprop": "url",
-                "explaintext": 1,
-                "exintro": 1,
-                "titles": "|".join(titles),
-                "format": "json",
-            },
-        )
-        r2.raise_for_status()
-        pages = r2.json().get("query", {}).get("pages", {})
-        by_title = {p.get("title"): p for p in pages.values()}
         now = utcnow()
         out = []
-        for i, t in enumerate(titles):
-            p = by_title.get(t)
+        for i, t in enumerate(titles):  # one page per request: full extracts are only served singly
+            r2 = self._client.get(
+                self.API,
+                params={
+                    "action": "query",
+                    "prop": "extracts|info",
+                    "inprop": "url",
+                    "explaintext": 1,
+                    "titles": t,
+                    "format": "json",
+                },
+            )
+            r2.raise_for_status()
+            pages = r2.json().get("query", {}).get("pages", {})
+            p = next(iter(pages.values()), None)
             if not p or "fullurl" not in p:
                 continue
+            text = p.get("extract") or ""
             out.append(
                 Source(
                     id=f"W{i + 1}",
                     url=p["fullurl"],
                     title=f"{t} - Wikipedia",
                     origin="wikipedia",
-                    fetched=bool(p.get("extract")),
+                    fetched=bool(text),
                     http_status=r2.status_code,
                     accessed_at=now,
-                    excerpt=(p.get("extract") or "")[:6000],
+                    excerpt=relevant_text(text, query),
                 )
             )
         return out
+
+
+def relevant_text(text: str, query: str, limit: int = 6000) -> str:
+    """The intro plus the paragraphs that share the most words with the query, in page order."""
+    paras = [p.strip() for p in text.split("\n") if len(p.strip()) > 60 and not p.strip().startswith("==")]
+    if not paras:
+        return text[:limit]
+    terms = {w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 3}
+    scored = sorted(
+        range(1, len(paras)),
+        key=lambda i: -len(terms & set(re.findall(r"[a-z0-9]+", paras[i].lower()))),
+    )
+    keep = {0}
+    size = len(paras[0])
+    for i in scored:
+        if size + len(paras[i]) > limit:
+            break
+        if terms & set(re.findall(r"[a-z0-9]+", paras[i].lower())):
+            keep.add(i)
+            size += len(paras[i])
+    return "\n".join(paras[i] for i in sorted(keep))[:limit]
 
 
 class TavilySearch(SearchProvider):

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Annotated
@@ -119,8 +120,15 @@ def create(
         Path | None, typer.Option(exists=True, dir_okay=False, help="Extra sources: 'URL | note' per line.")
     ] = None,
     voice: Annotated[
-        str, typer.Option(help="clone (your enrolled voice) | stock (labelled stock voice) | file")
-    ] = "stock",
+        str,
+        typer.Option(
+            help="ask (default: decide after picking the script) | file (your recording) | stock (AI voice) | clone"
+        ),
+    ] = "ask",
+    drafts: Annotated[int, typer.Option(min=1, max=3, help="Script drafts to write from a topic.")] = 3,
+    no_interactive: Annotated[
+        bool, typer.Option("--no-interactive", help="Don't ask questions; print the next commands instead.")
+    ] = False,
     narration: Annotated[
         Path | None, typer.Option(exists=True, dir_okay=False, help="Your recorded narration (voice=file).")
     ] = None,
@@ -149,6 +157,9 @@ def create(
         bool, typer.Option("--no-preview-gate", help="Render the final video without stopping at the preview.")
     ] = False,
     pace: Annotated[float, typer.Option(min=1.8, max=6.0, help="Target seconds between visual changes.")] = 3.2,
+    style: Annotated[
+        str, typer.Option(help="explainer (light canvas, presenter, diagrams) | creator (dark kinetic style)")
+    ] = "explainer",
 ) -> None:
     """Create a job from a topic (LLM + research) or a script file (works offline)."""
     if bool(topic) == bool(script_file):
@@ -183,6 +194,8 @@ def create(
         caption_source=caption_source,  # type: ignore[arg-type]  # validated by pydantic
         preview_gate=not no_preview_gate,
         edit_pace_s=pace,
+        visual_style=style,  # type: ignore[arg-type]  # validated by pydantic
+        drafts=drafts,
     )
     p = _pipeline()
     try:
@@ -197,12 +210,180 @@ def create(
         console.print(f"[red]Job {job.id} failed:[/] {job.last_error}")
         console.print(f"Fix the cause (e.g. add an API key to .env) and run: [bold]reelforge resume {job.id}[/]")
         raise typer.Exit(1)
-    show_version(p.load_version(job), job.id)
-    console.print(f"\nApprove:  [bold]uv run python -m reelforge.main approve-script {job.id}[/]")
-    console.print(
-        f'Revise:   [bold]uv run python -m reelforge.main revise {job.id} --feedback "..."[/]  '
-        f"or  --file edited_script.txt"
-    )
+    interactive = not no_interactive and sys.stdin.isatty()
+    versions = p.drafts(job)
+    if len(versions) > 1:
+        show_drafts(versions, job.id)
+    else:
+        show_version(versions[0], job.id)
+    if not interactive:
+        _print_next_steps(p, p.db.get_job(job.id))
+        return
+    _choose_and_run(p, job.id, versions)
+
+
+def show_drafts(versions: list[ScriptVersion], job_id: str) -> None:
+    """All drafts, compact: angle, hook, length and fact-check status, then the full text."""
+    t = Table("#", "angle", "title", "words", "facts matched", title=f"Script drafts for {job_id}")
+    for sv in versions:
+        angle = sv.note.split(" · ")[1] if sv.note.count(" · ") >= 1 else sv.origin
+        claims = sv.research.claims
+        ok = sum(c.status.value in ("auto_supported", "human_verified") for c in claims)
+        t.add_row(
+            str(sv.version),
+            angle,
+            sv.script.title,
+            f"{sv.script.word_count} (~{sv.script.estimated_seconds:.0f}s)",
+            f"{ok}/{len(claims)}",
+        )
+    console.print(t)
+    if versions and not any(src.fetched for src in versions[0].research.sources):
+        console.print(
+            "[bold red]Written without sources[/] - research found nothing it could open, so the facts "
+            "below come from the model's memory and may be wrong or outdated. Check them, or re-run "
+            "with --sources-file links.txt."
+        )
+    for sv in versions:
+        console.print(
+            Panel(
+                "\n".join(f"[cyan]{s.role}[/]  {s.text}" for s in sv.script.sections),
+                title=f"Draft {sv.version} · {sv.script.title}",
+                title_align="left",
+            )
+        )
+
+
+def _print_next_steps(p: Pipeline, job) -> None:
+    cfg = p.config(job)
+    if job.state != JobState.AWAITING_SCRIPT_APPROVAL:
+        return
+    if cfg.picked_version is None and len(p.db.script_versions(job.id)) > 1:
+        console.print(f"Pick a draft:  [bold]python -m reelforge.main pick {job.id} N[/]")
+    if cfg.voice_mode == "ask":
+        console.print(
+            f"Then the voice: [bold]python -m reelforge.main voice {job.id} --record[/]  (or --file F, or --ai)"
+        )
+    else:
+        console.print(f"Approve:       [bold]python -m reelforge.main approve-script {job.id}[/]")
+
+
+def _ask_voice(p: Pipeline, job_id: str) -> bool:
+    """Ask how to narrate. Returns True once a voice is set."""
+    console.print("\n[bold]How should it be narrated?[/]")
+    console.print("  1  Record my voice now (recommended)")
+    console.print("  2  Use an audio file I already recorded")
+    console.print("  3  Use the AI voice (a synthetic stock voice, labelled as not you)")
+    choice = typer.prompt("Choose 1, 2 or 3", default="1").strip()
+    if choice == "2":
+        path = Path(typer.prompt("Path to your recording").strip().strip("'\"")).expanduser()
+        from reelforge.voice.voiceover import check_voiceover
+
+        chk = check_voiceover(path)
+        _print_vo_check(chk)
+        if not chk.ok:
+            return False
+        p.choose_voice(job_id, "file", path)
+        return True
+    if choice == "3":
+        if not typer.confirm("Use the AI voice for this reel? It is not your voice and will be labelled as such."):
+            return False
+        p.choose_voice(job_id, "ai")
+        return True
+    voiceover_record(out=None, job=job_id, script_file=None, device="default", max_seconds=180)
+    return p.config(p.db.get_job(job_id)).voice_mode == "file"
+
+
+def _choose_and_run(p: Pipeline, job_id: str, versions: list[ScriptVersion]) -> None:
+    job = p.db.get_job(job_id)
+    if len(versions) > 1 and p.config(job).picked_version is None:
+        n = typer.prompt(
+            f"Which draft do you like? ({'/'.join(str(v.version) for v in versions)})",
+            type=int,
+            default=versions[0].version,
+        )
+        try:
+            p.pick_script(job_id, n)
+        except PipelineError as e:
+            _abort(e)
+    elif len(versions) == 1:
+        p.pick_script(job_id, versions[0].version)
+    while p.config(p.db.get_job(job_id)).voice_mode == "ask":
+        if not _ask_voice(p, job_id) and not typer.confirm("Try another voice option?", default=True):
+            _print_next_steps(p, p.db.get_job(job_id))
+            return
+    try:
+        p.approve_script(job_id)
+    except PipelineError as e:
+        _abort(e)
+    console.print("[green]Script and voice set.[/] Building the preview ...")
+    _report(p, p.run(job_id))
+
+
+@app.command()
+def drafts(job_id: str) -> None:
+    """Show the script drafts of a job side by side."""
+    p = _pipeline()
+    job = _job(p, job_id)
+    show_drafts(p.drafts(job), job.id)
+    _print_next_steps(p, job)
+
+
+@app.command()
+def pick(
+    job_id: str,
+    version: Annotated[int, typer.Argument(help="Draft number to use.")],
+    no_interactive: Annotated[bool, typer.Option("--no-interactive")] = False,
+) -> None:
+    """Choose a script draft; then (interactively) the voice, and build the preview."""
+    p = _pipeline()
+    _job(p, job_id)
+    try:
+        p.pick_script(job_id, version)
+    except PipelineError as e:
+        _abort(e)
+    console.print(f"Picked draft {version}.")
+    if no_interactive or not sys.stdin.isatty():
+        _print_next_steps(p, p.db.get_job(job_id))
+        return
+    _choose_and_run(p, job_id, p.drafts(p.db.get_job(job_id)))
+
+
+@app.command()
+def voice(
+    job_id: str,
+    ai: Annotated[bool, typer.Option("--ai", help="Use the AI stock voice (asks to confirm).")] = False,
+    file: Annotated[Path | None, typer.Option(exists=True, dir_okay=False, help="Your recorded voice-over.")] = None,
+    record: Annotated[bool, typer.Option("--record", help="Record your voice now.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Confirm the AI voice without asking.")] = False,
+    run: Annotated[
+        bool, typer.Option("--run/--no-run", help="Approve the picked script and build the preview.")
+    ] = True,
+) -> None:
+    """Choose how the picked script is narrated: --record, --file F, or --ai."""
+    p = _pipeline()
+    job = _job(p, job_id)
+    if sum([ai, file is not None, record]) != 1:
+        _abort(ValueError("choose exactly one of --record, --file F or --ai"))
+    try:
+        if ai:
+            if not yes and not typer.confirm("Use the AI voice? It is not your voice and will be labelled as such."):
+                raise typer.Exit(1)
+            p.choose_voice(job_id, "ai")
+        elif file is not None:
+            p.choose_voice(job_id, "file", file)
+        else:
+            voiceover_record(out=None, job=job_id, script_file=None, device="default", max_seconds=180)
+    except PipelineError as e:
+        _abort(e)
+    job = p.db.get_job(job_id)
+    if p.config(job).voice_mode == "ask":
+        _abort(PipelineError("no voice was set"))
+    if run and job.state == JobState.AWAITING_SCRIPT_APPROVAL:
+        try:
+            p.approve_script(job_id)
+        except PipelineError as e:
+            _abort(e)
+        _report(p, p.run(job_id))
 
 
 @app.command("show-script")
@@ -621,7 +802,7 @@ def voiceover_record(
     p = _pipeline() if job else None
     if job and p:
         j = _job(p, job)
-        sv = p.load_version(j, j.approved_version)
+        sv = p.load_version(j, j.approved_version or p.config(j).picked_version)
         console.print(
             Panel("\n\n".join(sec.text for sec in sv.script.sections), title=f"Read this ({sv.script.title})")
         )

@@ -71,6 +71,10 @@ class HookOut(BaseModel):
     score: float = Field(default=5, ge=0, le=10)
 
 
+class QueriesOut(BaseModel):
+    queries: list[str] = Field(min_length=1, max_length=4)
+
+
 class HookSetOut(BaseModel):
     hooks: list[HookOut] = Field(min_length=3, max_length=8)
 
@@ -111,6 +115,8 @@ class SceneHintOut(BaseModel):
     stat_label: str = ""
     icon: str = ""
     expression: Expression = "neutral"
+    step: str = ""  # chapter name when the section is one step of a process (explainer tabs)
+    tag: str = ""  # short header label
 
 
 class ScenePlanOut(BaseModel):
@@ -169,12 +175,15 @@ class LLMProvider(ABC):
 
     # -- pipeline operations -------------------------------------------------
 
+    def research_queries(self, topic: str) -> QueriesOut:
+        return self.structured(prompts.SYSTEM_RESEARCH, prompts.queries_prompt(topic), QueriesOut)
+
     def generate_hooks(self, topic: str, context: str) -> HookSetOut:
         return self.structured(prompts.SYSTEM_WRITER, prompts.hooks_prompt(topic, context), HookSetOut)
 
-    def generate_script(self, topic: str, selected_hook: str, sources: list[Source]) -> ScriptDraftOut:
+    def generate_script(self, topic: str, selected_hook: str, sources: list[Source], style: str = "") -> ScriptDraftOut:
         return self.structured(
-            prompts.SYSTEM_WRITER, prompts.script_prompt(topic, selected_hook, sources), ScriptDraftOut
+            prompts.SYSTEM_WRITER, prompts.script_prompt(topic, selected_hook, sources, style), ScriptDraftOut
         )
 
     def revise_script(self, script: Script, feedback: str, sources: list[Source]) -> ScriptDraftOut:

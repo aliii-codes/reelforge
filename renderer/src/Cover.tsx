@@ -2,11 +2,14 @@ import React from "react";
 import { AbsoluteFill } from "remotion";
 import { Avatar } from "./components/Avatar";
 import { Background } from "./components/Background";
+import { ExplainerCover } from "./explainer/ExplainerCover";
 import type { SceneManifest } from "./types";
 
 // Static cover (rendered as a still at frame 0). Text stays inside the centre-safe area
 // because Reels grid thumbnails crop the 9:16 cover to roughly 3:4.
-export const Cover: React.FC<SceneManifest> = (m) => {
+export const Cover: React.FC<SceneManifest> = (m) => (m.style === "explainer" ? <ExplainerCover {...m} /> : <CreatorCover {...m} />);
+
+const CreatorCover: React.FC<SceneManifest> = (m) => {
   const words = m.cover_title.split(/\s+/);
   const size = m.cover_title.length > 28 ? 104 : 124;
   const still = { ...m.avatar, mouth_open: [0], visemes: ["rest" as const], blink_frames: [], center_y: 1180, size: 520 };

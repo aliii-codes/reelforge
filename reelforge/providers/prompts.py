@@ -18,6 +18,17 @@ Rules:
 - Write numbers the way they should be SPOKEN (e.g. "fourteen gigabytes").
 Always reply with a single JSON object and nothing else."""
 
+SYSTEM_RESEARCH = """You plan encyclopedia research for a short educational video.
+Always reply with a single JSON object and nothing else."""
+
+
+def queries_prompt(topic: str) -> str:
+    return f"""Topic of a 45-60 s explainer video: {topic}
+
+Give 3 short Wikipedia search queries (2-5 words each, the names of concepts, not questions)
+whose articles explain this topic's facts. Return JSON: {{"queries": [str, str, str]}}"""
+
+
 SYSTEM_DESIGNER = """You plan on-screen motion graphics for a vertical explainer video.
 Each scene shows a SHORT headline (max 6 words) plus one simple graphic. Readability first.
 Always reply with a single JSON object and nothing else."""
@@ -36,7 +47,7 @@ def _sources_block(sources: list[Source]) -> str:
         return "No sources were retrieved. Do not cite any; mark every factual claim as uncertain."
     parts = []
     for s in sources:
-        excerpt = s.excerpt[:1500] if s.fetched else "(page could not be opened; do not rely on it)"
+        excerpt = s.excerpt[:900] if s.fetched else "(page could not be opened; do not rely on it)"
         parts.append(f"[{s.id}] {s.title} <{s.url}>\n{excerpt}")
     return "Sources (cite by id only; never invent URLs):\n\n" + "\n\n".join(parts)
 
@@ -53,10 +64,11 @@ true according to the sources. Score each 0-10 for scroll-stopping strength AND 
 Return JSON: {{"hooks": [{{"text": str, "angle": str, "rationale": str, "score": number}}]}}"""
 
 
-def script_prompt(topic: str, hook: str, sources: list[Source]) -> str:
+def script_prompt(topic: str, hook: str, sources: list[Source], style: str = "") -> str:
+    angle = f"\nAngle for this draft (make it clearly different from other drafts): {style}\n" if style else ""
     return f"""Topic: {topic}
 Opening hook to use (you may tighten wording): {hook}
-
+{angle}
 {STRUCTURE}
 
 {_sources_block(sources)}
@@ -109,10 +121,13 @@ cta (headline + subtext as the share prompt).
 Icons: chip, brain, phone, bolt, book, chart, bulb, warning, share, layers, globe, scale.
 Expressions: neutral, surprised, thoughtful, happy, skeptical (match the line's emotion).
 Only use numbers that literally appear in the section text.
+If consecutive sections walk through the steps of one process, give each a short "step" name
+(1-2 words, max 16 chars, e.g. "data", "guess", "adjust"); otherwise leave "step" empty.
+"tag" is an optional 2-4 word lowercase header for the section, may end with one emoji.
 
 Return JSON: {{"scenes": [{{"section_index": int, "scene": str, "headline": str, "subtext": str,
  "items": [str], "left": str, "right": str, "stat_value": number|null, "stat_prefix": str,
- "stat_suffix": str, "stat_label": str, "icon": str, "expression": str}}]}}"""
+ "stat_suffix": str, "stat_label": str, "icon": str, "expression": str, "step": str, "tag": str}}]}}"""
 
 
 def repair_prompt(original_user: str, bad_output: str, error: str) -> str:

@@ -107,3 +107,12 @@ def test_hook_ranking_does_not_just_take_first():
     assert ranked[0].text.startswith("Your laptop")
     assert len(ranked) == 2  # duplicate removed
     assert heuristic_score("This is shocking")[0] < heuristic_score("Only 4 bits per weight?")[0]
+
+
+def test_manual_script_rejects_more_than_four_items(tmp_path):
+    import pytest
+
+    from reelforge.scripting.manual import ScriptParseError, parse_script_text
+
+    with pytest.raises(ScriptParseError, match="at most 4"):
+        parse_script_text("[hook]\nHello there.\n> scene: diagram | items: a ; b ; c ; d ; e\n")

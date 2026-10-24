@@ -16,6 +16,15 @@ AvatarMode = Literal["hidden", "center", "corner", "reaction"]
 SfxKind = Literal["whoosh", "tick", "impact", "riser", "pop", "keys", "shutter"]
 Layout = Literal["center", "focus"]  # focus: bigger graphics panel, small avatar bottom-left
 CueKind = Literal["emphasis", "item", "count", "word", "line", "output", "highlight"]
+Style = Literal["creator", "explainer"]
+Pose = Literal["idle", "point", "think", "wave", "shrug"]
+PillColor = Literal["orange", "purple", "pink", "green"]
+# Explainer-style visual treatments (renderer/src/explainer/Visuals.tsx), chosen per beat by
+# reelforge/visuals/explainer.py from what the narration is saying.
+VISUALS = {
+    "hook", "card", "keyword", "steps", "chain", "network", "dials", "datastream", "checklist", "stat",
+    "scale", "compare", "twist", "code", "terminal", "evidence", "bars", "cta", "reaction",
+}  # fmt: skip
 ICONS = {"chip", "brain", "phone", "bolt", "book", "chart", "bulb", "warning", "share", "layers", "globe", "scale"}
 
 # Layout constants shared with the renderer (1080x1920 canvas).
@@ -82,6 +91,13 @@ class Scene(_M):
     cues: list[Cue] = Field(default_factory=list)
     lines: list[str] = Field(default_factory=list, max_length=6)  # demo scene: terminal/output lines
     section_index: int | None = Field(default=None, exclude=True)
+    # Explainer style (ignored by the creator style).
+    visual: str = ""
+    label: str = Field(default="", max_length=40)  # header pill
+    label_color: PillColor = "orange"
+    emoji: str = Field(default="", max_length=8)
+    chapter: int | None = None  # active chapter tab; len(chapters) = all done; None = tabs hidden
+    pose: Pose = "idle"
 
 
 class CaptionWordF(_M):
@@ -129,6 +145,8 @@ class AvatarTrack(_M):
 
 class SceneManifest(_M):
     schema_version: int = 3
+    style: Style = "creator"
+    chapters: list[str] = Field(default_factory=list, max_length=4)
     job_id: str
     title: str
     cover_title: str = Field(default="", max_length=48)
@@ -192,6 +210,8 @@ def validate_manifest(m: SceneManifest) -> list[str]:
                 errs.append(f"scene {s.id} has a cue at frame {c.frame} outside the scene")
         if [c.frame for c in s.cues] != sorted(c.frame for c in s.cues):
             errs.append(f"scene {s.id} cues are not in time order")
+    if m.style == "explainer":
+        errs += _validate_explainer(m)
     prev_end = 0
     for gi, g in enumerate(m.caption_groups):
         if g.start_frame < prev_end:
@@ -211,4 +231,28 @@ def validate_manifest(m: SceneManifest) -> list[str]:
         errs.append("avatar mouth_open values must be within 0..1")
     if any(not 0 <= c.frame < m.duration_frames for c in m.sfx_cues):
         errs.append("a sound-effect cue lies outside the video")
+    return errs
+
+
+def _validate_explainer(m: SceneManifest) -> list[str]:
+    errs: list[str] = []
+    if any(len(c) > 16 for c in m.chapters):
+        errs.append("a chapter tab label is longer than 16 chars")
+    run = 1
+    for i, s in enumerate(m.scenes):
+        if s.visual not in VISUALS:
+            errs.append(f"scene {s.id} has unknown explainer visual {s.visual!r}")
+        if s.chapter is not None and not (m.chapters and 0 <= s.chapter <= len(m.chapters)):
+            errs.append(f"scene {s.id} points at chapter {s.chapter} of {len(m.chapters)}")
+        if s.visual in ("steps", "chain", "checklist") and not 2 <= len(s.items) <= 4:
+            errs.append(f"{s.visual} scene {s.id} needs 2-4 items")
+        if s.visual in ("compare", "scale") and not (s.left and s.right):
+            errs.append(f"{s.visual} scene {s.id} needs left and right")
+        if s.visual == "code" and not s.lines:
+            errs.append(f"code scene {s.id} needs lines")
+        # the same generic treatment many beats in a row reads as a slideshow
+        same = i and s.visual == m.scenes[i - 1].visual and s.visual in ("card", "keyword")
+        run = run + 1 if same else 1
+        if run > 2:
+            errs.append(f"scene {s.id} is the third '{s.visual}' in a row")
     return errs

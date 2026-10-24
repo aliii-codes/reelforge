@@ -137,3 +137,12 @@ def test_generated_sound_handles_any_duration(tmp_path):
     for dur in (0.3, 4.05, 52.1):  # last chord segment shorter than the release time
         sound.write_bed(tmp_path / "bed.wav", dur)
         sound.write_sfx_track(tmp_path / "sfx.wav", dur, [0.1, dur - 0.05])
+
+
+def test_zero_length_first_word_from_whisper_gets_a_duration():
+    heard = full_heard()
+    heard[0] = (heard[0][0], 0.0, 0.0)
+    heard[1] = (heard[1][0], 0.0, heard[1][2])
+    track = build_caption_track(SCRIPT, transcript_from(heard))
+    assert all(w.end > w.start for w in track.words)
+    assert validate_captions(track, 7.0, expected_words=15).ok

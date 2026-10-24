@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -28,8 +29,25 @@ def gather_research(
     contact: str = "",
     extra_sources: list[Source] | None = None,
     fetch: bool = True,
+    queries: list[str] | None = None,
+    max_sources: int = 5,
 ) -> ResearchBundle:
-    sources, notes = run_search(topic, tavily_key=tavily_key, contact=contact)
+    """Search each query, merge, and keep only sources that actually talk about the topic."""
+    sources: list[Source] = []
+    notes: list[str] = []
+    seen: set[str] = set()
+    for q in queries or [topic]:
+        found, n = run_search(q, tavily_key=tavily_key, contact=contact, limit=3)
+        notes += n
+        for s in found:
+            if s.url not in seen:
+                seen.add(s.url)
+                sources.append(s)
+    terms = {w for w in re.findall(r"[a-z0-9]+", " ".join([topic, *(queries or [])]).lower()) if len(w) > 3}
+    relevant = [s for s in sources if len(terms & set(re.findall(r"[a-z0-9]+", s.excerpt.lower()))) >= 2]
+    if len(relevant) < len(sources):
+        notes.append(f"dropped {len(sources) - len(relevant)} off-topic search result(s)")
+    sources = [s.model_copy(update={"id": f"W{i + 1}"}) for i, s in enumerate(relevant[:max_sources])]
     manual = []
     for s in extra_sources or []:
         manual.append(fetch_source(s, contact) if fetch else s)
@@ -83,7 +101,7 @@ def draft_to_script(
 def research_context(research: ResearchBundle) -> str:
     if not research.sources:
         return "No research sources are available."
-    return "\n".join(f"[{s.id}] {s.title}: {s.excerpt[:700]}" for s in research.sources if s.fetched)
+    return "\n".join(f"[{s.id}] {s.title}: {s.excerpt[:900]}" for s in research.sources if s.fetched)
 
 
 def generate_from_topic(topic: str, llm: FallbackLLM, research: ResearchBundle) -> GenerationResult:
@@ -97,6 +115,46 @@ def generate_from_topic(topic: str, llm: FallbackLLM, research: ResearchBundle) 
     script = script.model_copy(update={"hooks": hooks, "selected_hook": 0})
     origin = f"llm:{llm.last_used.label}" if llm.last_used else "llm"
     return GenerationResult(script=script, research=bundle, origin=origin, notes=notes + llm.attempts)
+
+
+DRAFT_STYLES = [
+    ("Numbers first", "Lead with the single most striking, sourced number and build the explanation around it."),
+    ("Story & analogy", "Explain through one vivid everyday analogy; keep any numbers few and accurate."),
+    ("Myth-busting", "Open by naming a common misconception about the topic, then correct it step by step."),
+]
+
+
+def generate_drafts(topic: str, llm: FallbackLLM, research: ResearchBundle, n: int = 3) -> list[GenerationResult]:
+    """2-3 genuinely different script drafts for the user to choose from: one shared research
+    pass and hook brainstorm, then each draft gets its own hook and angle."""
+    hookset = llm.run(lambda p: p.generate_hooks(topic, research_context(research)))
+    hooks = rank_hooks(
+        [Hook(text=h.text, angle=h.angle, rationale=h.rationale, llm_score=h.score) for h in hookset.hooks]
+    )
+    results: list[GenerationResult] = []
+    errors: list[str] = []
+    for k in range(max(1, min(n, len(DRAFT_STYLES)))):
+        name, style = DRAFT_STYLES[k]
+        hook_i = k % len(hooks)
+        try:
+            hook_text = hooks[hook_i].text
+
+            def write(p, hook_text: str = hook_text, style: str = style) -> ScriptDraftOut:
+                return p.generate_script(topic, hook_text, research.sources, style)
+
+            draft = llm.run(write, start=k)  # alternate providers between drafts when several are set
+        except Exception as e:  # one failed draft shouldn't lose the others
+            errors.append(f"draft {k + 1} ({name}) failed: {type(e).__name__}")
+            continue
+        script, bundle, notes = draft_to_script(draft, topic, research)
+        script = script.model_copy(update={"hooks": hooks, "selected_hook": hook_i})
+        origin = f"llm:{llm.last_used.label}" if llm.last_used else "llm"
+        results.append(
+            GenerationResult(script=script, research=bundle, origin=origin, notes=[f"draft:{name}"] + notes + errors)
+        )
+    if not results:
+        raise RuntimeError("no script draft could be generated: " + "; ".join(errors))
+    return results
 
 
 def revise_with_llm(script: Script, research: ResearchBundle, feedback: str, llm: FallbackLLM) -> GenerationResult:
